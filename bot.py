@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters
 from flask import Flask, render_template_string
 import threading
 
@@ -132,14 +132,15 @@ def get_ai_response(user_message):
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a helpful AI assistant. Provide clear and helpful responses."
+                    "content": "You are a helpful AI assistant. Provide clear and helpful responses in the same language as the user."
                 },
                 {
                     "role": "user", 
                     "content": user_message
                 }
             ],
-            "stream": False
+            "stream": False,
+            "temperature": 0.7
         }
         
         response = requests.post(
@@ -254,8 +255,13 @@ def handle_message(update, context):
     # Get AI response
     bot_response = get_ai_response(user_message)
     
-    # Send response
-    update.message.reply_text(bot_response)
+    # Send response (split if too long)
+    if len(bot_response) > 4096:
+        for i in range(0, len(bot_response), 4096):
+            update.message.reply_text(bot_response[i:i+4096])
+    else:
+        update.message.reply_text(bot_response)
+    
     logger.info(f"Response sent to user {user.id}")
 
 def error_handler(update, context):
@@ -266,15 +272,15 @@ def error_handler(update, context):
 def setup_bot():
     """Setup and start the Telegram bot"""
     try:
-        # Create Updater with use_context=False for v13.7
-        updater = Updater(BOT_TOKEN, use_context=False)
+        # Create Updater - use_context is not needed in newer versions
+        updater = Updater(BOT_TOKEN)
         dispatcher = updater.dispatcher
         
         # Add handlers
         dispatcher.add_handler(CommandHandler("start", start_command))
         dispatcher.add_handler(CommandHandler("help", help_command))
         dispatcher.add_handler(CommandHandler("about", about_command))
-        dispatcher.add_handler(MessageHandler(Filters.text, handle_message))
+        dispatcher.add_handler(MessageHandler(filters.TEXT, handle_message))
         
         # Add error handler
         dispatcher.add_error_handler(error_handler)
@@ -306,14 +312,19 @@ def main():
     bot_updater = setup_bot()
     
     if bot_updater:
-        logger.info("🤖 Bot is now running...")
+        logger.info("🤖 Bot is now running and ready to receive messages!")
+        logger.info("📱 Search for your bot on Telegram and send /start to test")
+        
         # Keep the main thread alive
         bot_updater.idle()
     else:
         logger.error("💥 Failed to start bot")
 
 if __name__ == '__main__':
-    print("=" * 50)
-    print("🤖 DEEPSEEK AI BOT STARTING...")
-    print("=" * 50)
+    print("=" * 60)
+    print("🤖 DEEPSEEK AI TELEGRAM BOT - STARTING...")
+    print("📱 Bot Token:", BOT_TOKEN[:10] + "..." + BOT_TOKEN[-5:])
+    print("🔑 API Key:", DEEPSEEK_API_KEY[:10] + "..." + DEEPSEEK_API_KEY[-5:])
+    print("👤 Owner ID:", OWNER_ID)
+    print("=" * 60)
     main()
