@@ -1,11 +1,16 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import (
+    PhoneNumberInvalid, PhoneCodeInvalid, PhoneCodeExpired,
+    SessionPasswordNeeded, PasswordHashInvalid
+)
 import asyncio
 import threading
 import os
 import logging
 import time
+import re
 
 # Flask app setup
 app = Flask(__name__)
@@ -17,10 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration
-BOT_TOKEN = "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM"
-API_ID = 25136703
-API_HASH = "accfaf5ecd981c67e481328515c39f89"
+# Bot configuration - यहाँ आपको अपने credentials डालने होंगे
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM")
+API_ID = int(os.environ.get("API_ID", 25136703))
+API_HASH = os.environ.get("API_HASH", "accfaf5ecd981c67e481328515c39f89")
 
 # Support Channel
 SUPPORT_CHANNEL = "shribots"
@@ -99,7 +104,7 @@ class SessionManager:
         """Create a new session for user"""
         try:
             client = Client(
-                f"sessions/{user_id}_{int(time.time())}",
+                f"user_{user_id}",
                 api_id=API_ID,
                 api_hash=API_HASH,
                 in_memory=True
@@ -126,18 +131,22 @@ class SessionManager:
         """Update user session step"""
         if user_id in self.sessions:
             self.sessions[user_id]['step'] = step
+            return True
+        return False
     
     def delete_user_session(self, user_id):
         """Delete user session"""
         if user_id in self.sessions:
             try:
-                client = self.sessions[user_id]['client']
-                if client.is_connected:
+                session_data = self.sessions[user_id]
+                client = session_data['client']
+                if hasattr(client, 'is_connected') and client.is_connected:
                     client.disconnect()
-            except:
-                pass
-            del self.sessions[user_id]
-            logger.info(f"Session deleted for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error disconnecting client: {e}")
+            finally:
+                del self.sessions[user_id]
+                logger.info(f"Session deleted for user {user_id}")
 
 # Initialize session manager
 session_manager = SessionManager()
@@ -164,6 +173,15 @@ def get_session_keyboard():
         [InlineKeyboardButton("🔄 Generate New", callback_data="generate")]
     ])
 
+def validate_phone_number(phone):
+    """Validate phone number format"""
+    pattern = r'^\+\d{10,15}$'
+    return re.match(pattern, phone) is not None
+
+def validate_code(code):
+    """Validate verification code format"""
+    return code.isdigit() and len(code) == 6
+
 # Bot Handlers
 @bot.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
@@ -176,7 +194,8 @@ async def start_command(client: Client, message: Message):
         
         await message.reply_text(
             welcome_text,
-            reply_markup=get_start_keyboard()
+            reply_markup=get_start_keyboard(),
+            disable_web_page_preview=True
         )
         logger.info(f"Start command received from {user_id}")
         
@@ -189,7 +208,8 @@ async def help_command(client: Client, message: Message):
     """Handle /help command"""
     await message.reply_text(
         HELP_MESSAGE,
-        reply_markup=get_support_keyboard()
+        reply_markup=get_support_keyboard(),
+        disable_web_page_preview=True
     )
 
 @bot.on_message(filters.command("generate"))
@@ -203,12 +223,16 @@ async def generate_command(client: Client, message: Message):
             await message.reply_text("⚠️ You already have an active session. Please complete it first or use /cancel to start over.")
             return
         
+        # Create new session
+        session_manager.create_user_session(user_id, "")
+        
         await message.reply_text(
             "📱 **Step 1: Phone Number**\n\n"
             "Please send your phone number in international format:\n"
             "• Example: **+919876543210**\n"
             "• Example: **+1234567890**\n\n"
-            "Or use /cancel to stop the process."
+            "Or use /cancel to stop the process.",
+            disable_web_page_preview=True
         )
         
     except Exception as e:
@@ -244,12 +268,16 @@ async def handle_callbacks(client: Client, callback_query):
                 await callback_query.answer("You already have an active session!", show_alert=True)
                 return
             
+            # Create new session
+            session_manager.create_user_session(user_id, "")
+            
             await callback_query.message.edit_text(
                 "📱 **Step 1: Phone Number**\n\n"
                 "Please send your phone number in international format:\n"
                 "• Example: **+919876543210**\n"
                 "• Example: **+1234567890**\n\n"
-                "Or use /cancel to stop the process."
+                "Or use /cancel to stop the process.",
+                disable_web_page_preview=True
             )
             
         elif data == "help":
@@ -258,7 +286,8 @@ async def handle_callbacks(client: Client, callback_query):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚀 Generate Session", callback_data="generate")],
                     [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")]
-                ])
+                ]),
+                disable_web_page_preview=True
             )
             
         await callback_query.answer()
@@ -308,26 +337,25 @@ async def handle_phone_number(client: Client, message: Message, user_session, ph
     user_id = message.from_user.id
     
     # Validate phone number format
-    if not (phone_number.startswith('+') and len(phone_number) > 10):
+    if not validate_phone_number(phone_number):
         await message.reply_text(
             "❌ Invalid phone number format.\n\n"
             "Please send your phone number in international format:\n"
             "• **+919876543210** (India)\n"
             "• **+1234567890** (US)\n\n"
-            "Make sure it starts with '+' and includes country code."
+            "Make sure it starts with '+' and includes country code.",
+            disable_web_page_preview=True
         )
         return
     
     try:
-        # Create user session if not exists
-        if not session_manager.get_user_session(user_id):
-            session_manager.create_user_session(user_id, phone_number)
-            user_session = session_manager.get_user_session(user_id)
-        
-        # Create user client and send code
+        # Update session with phone number
+        user_session['phone_number'] = phone_number
         user_client = user_session['client']
+        
         await user_client.connect()
         
+        # Send verification code
         sent_code = await user_client.send_code(phone_number)
         
         # Update session data
@@ -338,15 +366,17 @@ async def handle_phone_number(client: Client, message: Message, user_session, ph
             "📨 **Step 2: Verification Code**\n\n"
             "I've sent a verification code to your Telegram account.\n\n"
             "Please check your messages and send me the **6-digit code** you received.\n\n"
-            "Or use /cancel to stop the process."
+            "Or use /cancel to stop the process.",
+            disable_web_page_preview=True
         )
         logger.info(f"Verification code sent to {phone_number}")
         
+    except PhoneNumberInvalid:
+        await message.reply_text("❌ Invalid phone number.\n\nPlease check your phone number and try again with country code.")
+        session_manager.delete_user_session(user_id)
     except Exception as e:
         error_msg = str(e).lower()
-        if "phone number invalid" in error_msg:
-            await message.reply_text("❌ Invalid phone number.\n\nPlease check your phone number and try again with country code.")
-        elif "flood" in error_msg:
+        if "flood" in error_msg:
             await message.reply_text("⏳ Too many attempts. Please wait a while before trying again.")
         else:
             await message.reply_text("❌ Error sending verification code. Please try again with /generate")
@@ -361,7 +391,7 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
     phone_number = user_session['phone_number']
     
     # Validate code format
-    if not (code.isdigit() and len(code) == 6):
+    if not validate_code(code):
         await message.reply_text("❌ Invalid code format.\n\nPlease send the **6-digit** verification code you received.\nExample: **123456**")
         return
     
@@ -378,7 +408,7 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         # Generate string session
         string_session = await user_client.export_session_string()
         
-        # Send success message - FIXED: Properly terminated f-string
+        # Send success message
         success_message = (
             f"✅ **String Session Generated Successfully!**\n\n"
             f"**Your String Session:**\n"
@@ -387,16 +417,6 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
             f"🔒 **Keep it Secure:** Never share this session string\n"
             f"🗑️ **Regenerate if compromised:** Use /generate to create new one\n"
             f"💾 **Store Safely:** Save it in a secure place\n\n"
-            f"**Usage in Pyrogram:**\n"
-            f"```python\n"
-            f"from pyrogram import Client\n\n"
-            f"app = Client(\n"
-            f"    \"my_account\",\n"
-            f"    session_string=\"{string_session}\",\n"
-            f"    api_id=API_ID,\n"
-            f"    api_hash=API_HASH\n"
-            f")\n"
-            f"```\n\n"
             f"**Support:**\n"
             f"Join @{SUPPORT_CHANNEL} for help and updates.\n\n"
             f"🎉 **Thank you for using our service!**"
@@ -404,7 +424,8 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         
         await message.reply_text(
             success_message,
-            reply_markup=get_session_keyboard()
+            reply_markup=get_session_keyboard(),
+            disable_web_page_preview=True
         )
         logger.info(f"String session generated for user {user_id}")
         
@@ -412,26 +433,28 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         await user_client.disconnect()
         session_manager.delete_user_session(user_id)
         
+    except PhoneCodeInvalid:
+        await message.reply_text("❌ Invalid verification code.\n\nPlease check the code and try again.\nMake sure you're entering the latest code received.")
+    except PhoneCodeExpired:
+        await message.reply_text("❌ Verification code expired.\n\nPlease start over with /generate to get a new code.")
+        session_manager.delete_user_session(user_id)
+    except SessionPasswordNeeded:
+        session_manager.update_session_step(user_id, 'password')
+        await message.reply_text(
+            "🔒 **Step 3: 2FA Password**\n\n"
+            "Your account has two-step verification enabled.\n\n"
+            "Please send your **2FA password** to continue.\n\n"
+            "Or use /cancel to stop the process.",
+            disable_web_page_preview=True
+        )
     except Exception as e:
         error_msg = str(e).lower()
-        
-        if "phone code invalid" in error_msg:
-            await message.reply_text("❌ Invalid verification code.\n\nPlease check the code and try again.\nMake sure you're entering the latest code received.")
-        elif "session password needed" in error_msg:
-            session_manager.update_session_step(user_id, 'password')
-            await message.reply_text(
-                "🔒 **Step 3: 2FA Password**\n\n"
-                "Your account has two-step verification enabled.\n\n"
-                "Please send your **2FA password** to continue.\n\n"
-                "Or use /cancel to stop the process."
-            )
-        elif "flood" in error_msg:
+        if "flood" in error_msg:
             await message.reply_text("⏳ Too many attempts. Please wait before trying again.")
-            session_manager.delete_user_session(user_id)
         else:
             await message.reply_text("❌ Error verifying code. Please start over with /generate")
             logger.error(f"Error verifying code: {e}")
-            session_manager.delete_user_session(user_id)
+        session_manager.delete_user_session(user_id)
 
 async def handle_2fa_password(client: Client, message: Message, user_session, password):
     """Handle 2FA password input"""
@@ -446,7 +469,7 @@ async def handle_2fa_password(client: Client, message: Message, user_session, pa
         # Generate string session
         string_session = await user_client.export_session_string()
         
-        # Send success message - FIXED: Properly terminated f-string
+        # Send success message
         success_message = (
             f"✅ **String Session Generated Successfully!**\n\n"
             f"**Your String Session:**\n"
@@ -455,16 +478,6 @@ async def handle_2fa_password(client: Client, message: Message, user_session, pa
             f"🔒 **Keep it Secure:** Never share this session string\n"
             f"🗑️ **Regenerate if compromised:** Use /generate to create new one\n"
             f"💾 **Store Safely:** Save it in a secure place\n\n"
-            f"**Usage in Pyrogram:**\n"
-            f"```python\n"
-            f"from pyrogram import Client\n\n"
-            f"app = Client(\n"
-            f"    \"my_account\",\n"
-            f"    session_string=\"{string_session}\",\n"
-            f"    api_id=API_ID,\n"
-            f"    api_hash=API_HASH\n"
-            f")\n"
-            f"```\n\n"
             f"**Support:**\n"
             f"Join @{SUPPORT_CHANNEL} for help and updates.\n\n"
             f"🎉 **Thank you for using our service!**"
@@ -472,7 +485,8 @@ async def handle_2fa_password(client: Client, message: Message, user_session, pa
         
         await message.reply_text(
             success_message,
-            reply_markup=get_session_keyboard()
+            reply_markup=get_session_keyboard(),
+            disable_web_page_preview=True
         )
         logger.info(f"String session generated with 2FA for user {user_id}")
         
@@ -480,15 +494,12 @@ async def handle_2fa_password(client: Client, message: Message, user_session, pa
         await user_client.disconnect()
         session_manager.delete_user_session(user_id)
         
+    except PasswordHashInvalid:
+        await message.reply_text("❌ Invalid 2FA password.\n\nPlease check your password and try again.\n\nOr use /cancel to stop the process.")
     except Exception as e:
-        error_msg = str(e).lower()
-        
-        if "password" in error_msg and "invalid" in error_msg:
-            await message.reply_text("❌ Invalid 2FA password.\n\nPlease check your password and try again.\n\nOr use /cancel to stop the process.")
-        else:
-            await message.reply_text("❌ Error verifying password. Please start over with /generate")
-            logger.error(f"Error verifying 2FA: {e}")
-            session_manager.delete_user_session(user_id)
+        await message.reply_text("❌ Error verifying password. Please start over with /generate")
+        logger.error(f"Error verifying 2FA: {e}")
+        session_manager.delete_user_session(user_id)
 
 # Flask Routes
 @app.route('/')
@@ -496,7 +507,7 @@ def home():
     return jsonify({
         "status": "running",
         "service": "Telegram String Session Bot",
-        "version": "1.0",
+        "version": "2.0",
         "support_channel": f"@{SUPPORT_CHANNEL}",
         "endpoints": {
             "home": "/",
@@ -541,9 +552,13 @@ async def start_telegram_bot():
         print(f"Bot: @{bot_info.username}")
         print(f"Name: {bot_info.first_name}")
         print(f"Support: @{SUPPORT_CHANNEL}")
+        print(f"Active Sessions: {len(session_manager.sessions)}")
         print("Status: ✅ Running")
         print("Deployment: 🚀 Render")
         print("="*50)
+        
+        # Keep the bot running
+        await asyncio.Event().wait()
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
@@ -553,8 +568,12 @@ def run_bot():
     """Run bot in background thread"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_telegram_bot())
-    loop.run_forever()
+    try:
+        loop.run_until_complete(start_telegram_bot())
+    except Exception as e:
+        logger.error(f"Bot stopped with error: {e}")
+    finally:
+        loop.close()
 
 # Application Startup
 if __name__ == "__main__":
