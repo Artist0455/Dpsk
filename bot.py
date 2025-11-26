@@ -149,11 +149,7 @@ async def start_command(client: Client, message: Message):
         user_id = message.from_user.id
         first_name = message.from_user.first_name
         
-        welcome_text = f"""
-👋 Hello **{first_name}**!
-
-{WELCOME_MESSAGE}
-        """
+        welcome_text = f"👋 Hello **{first_name}**!\n\n{WELCOME_MESSAGE}"
         
         await message.reply_text(welcome_text)
         logger.info(f"Start command received from {user_id}")
@@ -175,9 +171,7 @@ async def generate_command(client: Client, message: Message):
         
         # Check if user already has active session
         if session_manager.get_user_session(user_id):
-            await message.reply_text(
-                "⚠️ You already have an active session. Please complete it first or use /cancel to start over."
-            )
+            await message.reply_text("⚠️ You already have an active session. Please complete it first or use /cancel to start over.")
             return
         
         await message.reply_text(
@@ -214,10 +208,7 @@ async def handle_text_messages(client: Client, message: Message):
         
         if not user_session:
             # No active session - prompt to start
-            await message.reply_text(
-                "🤖 Welcome! I can generate Pyrogram string sessions.\n\n"
-                "Use /generate to start the process or /help for more information."
-            )
+            await message.reply_text("🤖 Welcome! I can generate Pyrogram string sessions.\n\nUse /generate to start the process or /help for more information.")
             return
         
         current_step = user_session['step']
@@ -272,18 +263,11 @@ async def handle_phone_number(client: Client, message: Message, user_session, ph
     except Exception as e:
         error_msg = str(e).lower()
         if "phone number invalid" in error_msg:
-            await message.reply_text(
-                "❌ Invalid phone number.\n\n"
-                "Please check your phone number and try again with country code."
-            )
+            await message.reply_text("❌ Invalid phone number.\n\nPlease check your phone number and try again with country code.")
         elif "flood" in error_msg:
-            await message.reply_text(
-                "⏳ Too many attempts. Please wait a while before trying again."
-            )
+            await message.reply_text("⏳ Too many attempts. Please wait a while before trying again.")
         else:
-            await message.reply_text(
-                "❌ Error sending verification code. Please try again with /generate"
-            )
+            await message.reply_text("❌ Error sending verification code. Please try again with /generate")
             logger.error(f"Error sending code: {e}")
         
         # Clean up
@@ -296,11 +280,7 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
     
     # Validate code format
     if not (code.isdigit() and len(code) == 6):
-        await message.reply_text(
-            "❌ Invalid code format.\n\n"
-            "Please send the **6-digit** verification code you received.\n"
-            "Example: **123456**"
-        )
+        await message.reply_text("❌ Invalid code format.\n\nPlease send the **6-digit** verification code you received.\nExample: **123456**")
         return
     
     try:
@@ -317,8 +297,7 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         string_session = await user_client.export_session_string()
         
         # Send success message
-        success_message = f"""
-✅ **String Session Generated Successfully!**
+        success_message = f"""✅ **String Session Generated Successfully!**
 
 **Your String Session:**
 ```{string_session}```
@@ -337,4 +316,4 @@ app = Client(
     session_string="{string_session}",
     api_id=API_ID,
     api_hash=API_HASH
-)
+    )
