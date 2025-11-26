@@ -22,9 +22,6 @@ BOT_TOKEN = "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM"
 API_ID = 25136703
 API_HASH = "accfaf5ecd981c67e481328515c39f89"
 
-# Store user sessions
-user_sessions = {}
-
 # Welcome Messages
 WELCOME_MESSAGE = """
 🤖 **Welcome to String Session Generator Bot!**
@@ -242,6 +239,11 @@ async def handle_phone_number(client: Client, message: Message, user_session, ph
         return
     
     try:
+        # Create user session if not exists
+        if not session_manager.get_user_session(user_id):
+            session_manager.create_user_session(user_id, phone_number)
+            user_session = session_manager.get_user_session(user_id)
+        
         # Create user client and send code
         user_client = user_session['client']
         await user_client.connect()
@@ -296,7 +298,7 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         # Generate string session
         string_session = await user_client.export_session_string()
         
-        # Send success message
+        # Send success message - FIXED: No f-string issue
         success_message = f"""✅ **String Session Generated Successfully!**
 
 **Your String Session:**
@@ -316,4 +318,4 @@ app = Client(
     session_string="{string_session}",
     api_id=API_ID,
     api_hash=API_HASH
-    )
+)
