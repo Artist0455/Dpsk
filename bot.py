@@ -2,24 +2,7 @@ import os
 import logging
 import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from flask import Flask
-
-# Flask app for Render
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 Telegram + DeepSeek Bot is Active!"
-
-@app.route('/health')
-def health():
-    return "✅ Bot is healthy!"
-
-# Configuration
-BOT_TOKEN = "8339585926:AAEeluPGVakchVJ7TPDlIkio6A1HPYy4wRg"
-DEEPSEEK_API_KEY = "sk-9b569ed95c7947fb982587f53bec6e15"
-OWNER_ID = 8272213732
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Set up logging
 logging.basicConfig(
@@ -28,55 +11,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update.message.reply_html(
-        f"👋 नमस्ते {user.mention_html()}!\n\n"
-        "🤖 मैं DeepSeek AI से powered एक smart bot हूं!\n\n"
-        "💡 आप मुझसे कुछ भी पूछ सकते हैं - questions, help, coding, writing, etc.\n\n"
-        "📝 बस अपना message type करें और मैं आपकी help करूंगा!"
+# Configuration - PLEASE CHANGE THESE FOR SECURITY!
+BOT_TOKEN = "8339585926:AAEeluPGVakchVJ7TPDlIkio6A1HPYy4wRg"
+DEEPSEEK_API_KEY = "sk-9b569ed95c7947fb982587f53bec6e15"
+
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text(
+        '👋 नमस्ते! मैं DeepSeek AI Bot हूं!\n\n'
+        '💡 आप मुझसे कुछ भी पूछ सकते हैं - questions, help, coding, writing, etc.\n\n'
+        '📝 बस कोई भी message type करें!'
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🆘 **Available Commands:**
+async def help_command(update: Update, context: CallbackContext):
+    await update.message.reply_text('💡 बस कोई भी message type करें, मैं AI की help से reply दूंगा!')
 
-/start - Bot शुरू करें
-/help - यह help message
-/owner - Bot owner के बारे में जानकारी
-
-💬 **Regular Usage:**
-बस कोई भी message type करें और मैं उसका reply दूंगा!
-
-🔧 **Features:**
-- Text conversations
-- Question answering  
-- Coding help
-- Creative writing
-- और भी बहुत कुछ!
-"""
-    await update.message.reply_text(help_text)
-
-async def owner_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    owner_text = f"""
-👨‍💻 **Bot Owner Information:**
-
-🆔 Owner ID: {OWNER_ID}
-📧 Contact: @username (Telegram)
-
-🤖 This bot is powered by:
-- DeepSeek AI API
-- Python Telegram Bot
-- Render Deployment
-"""
-    await update.message.reply_text(owner_text)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: CallbackContext):
     try:
         user_message = update.message.text
-        user_id = update.effective_user.id
-        
-        logger.info(f"User {user_id} asked: {user_message}")
+        logger.info(f"User asked: {user_message}")
         
         # DeepSeek API call
         headers = {
@@ -86,12 +38,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         data = {
             "model": "deepseek-chat",
-            "messages": [
-                {
-                    "role": "user", 
-                    "content": user_message
-                }
-            ],
+            "messages": [{"role": "user", "content": user_message}],
             "stream": False
         }
         
@@ -106,63 +53,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = response.json()
             bot_reply = result['choices'][0]['message']['content']
             
-            # Send response to user (split if too long)
+            # Split long messages
             if len(bot_reply) > 4096:
-                for x in range(0, len(bot_reply), 4096):
-                    await update.message.reply_text(bot_reply[x:x+4096])
+                for i in range(0, len(bot_reply), 4096):
+                    await update.message.reply_text(bot_reply[i:i+4096])
             else:
                 await update.message.reply_text(bot_reply)
                 
-            logger.info(f"Response sent to user {user_id}")
-            
         else:
-            error_msg = f"❌ API Error: {response.status_code}"
-            await update.message.reply_text("माफ करें, technical issue आ रहा है। कृपया कुछ देर बाद try करें।")
-            logger.error(error_msg)
+            await update.message.reply_text("❌ Technical issue. Please try again later.")
             
     except Exception as e:
-        error_message = f"❌ Unexpected error: {str(e)}"
-        await update.message.reply_text("माफ करें, कुछ error आया। कृपया बाद में try करें।")
-        logger.error(error_message)
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Exception while handling an update: {context.error}")
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("❌ Sorry, something went wrong.")
 
 def main():
-    """Start the bot."""
     try:
-        # Create Application
+        # Create application
         application = Application.builder().token(BOT_TOKEN).build()
         
         # Add handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("owner", owner_info))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
-        # Error handler
-        application.add_error_handler(error_handler)
-        
-        # Start the Bot
-        logger.info("🤖 Bot is starting...")
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
+        # Start bot
+        logger.info("🤖 Bot starting...")
+        application.run_polling()
         
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Bot failed to start: {e}")
 
 if __name__ == '__main__':
-    # Run both Flask app and Telegram bot
-    import threading
-    
-    # Start Flask in a separate thread
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=8000, debug=False, use_reloader=False)
-    )
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    # Start Telegram bot
     main()
