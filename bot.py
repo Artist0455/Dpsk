@@ -3,7 +3,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import (
     PhoneNumberInvalid, PhoneCodeInvalid, PhoneCodeExpired,
-    SessionPasswordNeeded, PasswordHashInvalid
+    SessionPasswordNeeded, PasswordHashInvalid, FloodWait
 )
 import asyncio
 import threading
@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration - यहाँ आपको अपने credentials डालने होंगे
+# Bot configuration from environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM")
 API_ID = int(os.environ.get("API_ID", 25136703))
 API_HASH = os.environ.get("API_HASH", "accfaf5ecd981c67e481328515c39f89")
@@ -374,15 +374,13 @@ async def handle_phone_number(client: Client, message: Message, user_session, ph
     except PhoneNumberInvalid:
         await message.reply_text("❌ Invalid phone number.\n\nPlease check your phone number and try again with country code.")
         session_manager.delete_user_session(user_id)
+    except FloodWait as e:
+        await message.reply_text(f"⏳ Too many attempts. Please wait {e.value} seconds before trying again.")
+        session_manager.delete_user_session(user_id)
     except Exception as e:
         error_msg = str(e).lower()
-        if "flood" in error_msg:
-            await message.reply_text("⏳ Too many attempts. Please wait a while before trying again.")
-        else:
-            await message.reply_text("❌ Error sending verification code. Please try again with /generate")
-            logger.error(f"Error sending code: {e}")
-        
-        # Clean up
+        await message.reply_text("❌ Error sending verification code. Please try again with /generate")
+        logger.error(f"Error sending code: {e}")
         session_manager.delete_user_session(user_id)
 
 async def handle_verification_code(client: Client, message: Message, user_session, code):
@@ -447,13 +445,12 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
             "Or use /cancel to stop the process.",
             disable_web_page_preview=True
         )
+    except FloodWait as e:
+        await message.reply_text(f"⏳ Too many attempts. Please wait {e.value} seconds before trying again.")
+        session_manager.delete_user_session(user_id)
     except Exception as e:
-        error_msg = str(e).lower()
-        if "flood" in error_msg:
-            await message.reply_text("⏳ Too many attempts. Please wait before trying again.")
-        else:
-            await message.reply_text("❌ Error verifying code. Please start over with /generate")
-            logger.error(f"Error verifying code: {e}")
+        await message.reply_text("❌ Error verifying code. Please start over with /generate")
+        logger.error(f"Error verifying code: {e}")
         session_manager.delete_user_session(user_id)
 
 async def handle_2fa_password(client: Client, message: Message, user_session, password):
@@ -509,6 +506,7 @@ def home():
         "service": "Telegram String Session Bot",
         "version": "2.0",
         "support_channel": f"@{SUPPORT_CHANNEL}",
+        "bot_status": "active",
         "endpoints": {
             "home": "/",
             "health": "/health",
@@ -522,7 +520,8 @@ def health_check():
         "status": "healthy",
         "timestamp": time.time(),
         "active_sessions": len(session_manager.sessions),
-        "support_channel": SUPPORT_CHANNEL
+        "support_channel": SUPPORT_CHANNEL,
+        "bot_connected": True
     })
 
 @app.route('/stats')
@@ -531,37 +530,40 @@ def stats():
         "active_sessions": len(session_manager.sessions),
         "service": "String Session Generator Bot",
         "support": f"@{SUPPORT_CHANNEL}",
-        "uptime": "running"
+        "uptime": "running",
+        "status": "operational"
     })
 
 # Bot Runner Functions
 async def start_telegram_bot():
     """Start the Telegram bot"""
     try:
+        logger.info("🤖 Starting Telegram Bot...")
         await bot.start()
-        logger.info("🤖 Telegram Bot Started Successfully!")
         
         # Get bot info
         bot_info = await bot.get_me()
-        logger.info(f"Bot Username: @{bot_info.username}")
-        logger.info(f"Bot Name: {bot_info.first_name}")
+        logger.info(f"✅ Bot Started Successfully: @{bot_info.username}")
         
-        print("\n" + "="*50)
-        print("🎉 STRING SESSION BOT STARTED SUCCESSFULLY!")
-        print("="*50)
-        print(f"Bot: @{bot_info.username}")
-        print(f"Name: {bot_info.first_name}")
-        print(f"Support: @{SUPPORT_CHANNEL}")
-        print(f"Active Sessions: {len(session_manager.sessions)}")
-        print("Status: ✅ Running")
-        print("Deployment: 🚀 Render")
-        print("="*50)
+        print("\n" + "="*60)
+        print("🎉 TELEGRAM STRING SESSION BOT STARTED SUCCESSFULLY!")
+        print("="*60)
+        print(f"🤖 Bot: @{bot_info.username}")
+        print(f"📛 Name: {bot_info.first_name}")
+        print(f"🆔 ID: {bot_info.id}")
+        print(f"📢 Support: @{SUPPORT_CHANNEL}")
+        print(f"🔗 Status: ✅ ACTIVE & RUNNING")
+        print(f"🌐 Deployment: 🚀 RENDER")
+        print("="*60)
+        print("💡 Send /start to your bot to test it!")
+        print("="*60)
         
         # Keep the bot running
         await asyncio.Event().wait()
         
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"❌ Failed to start bot: {e}")
+        print(f"❌ BOT START FAILED: {e}")
         raise e
 
 def run_bot():
@@ -572,22 +574,30 @@ def run_bot():
         loop.run_until_complete(start_telegram_bot())
     except Exception as e:
         logger.error(f"Bot stopped with error: {e}")
+        print(f"❌ BOT STOPPED: {e}")
     finally:
         loop.close()
 
 # Application Startup
 if __name__ == "__main__":
+    print("🚀 Initializing String Session Bot...")
+    
     # Create sessions directory
     os.makedirs("sessions", exist_ok=True)
     
     # Start Telegram bot in background thread
-    logger.info("Starting Telegram Bot...")
+    logger.info("Starting Telegram Bot in background thread...")
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+    
+    # Give bot time to start
+    time.sleep(3)
     
     # Start Flask server
     port = int(os.environ.get("PORT", 5000))
     logger.info(f"Starting Flask server on port {port}")
+    
+    print(f"🌐 Flask server starting on port {port}...")
     
     app.run(
         host='0.0.0.0',
