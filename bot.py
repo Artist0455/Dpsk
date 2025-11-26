@@ -1,90 +1,15 @@
-import logging
 import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-
-# Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+import time
 
 # Configuration
 BOT_TOKEN = "8339585926:AAEeluPGVakchVJ7TPDlIkio6A1HPYy4wRg"
 DEEPSEEK_API_KEY = "sk-9b569ed95c7947fb982587f53bec6e15"
 
-print("🤖 Starting DeepSeek AI Telegram Bot...")
-print(f"📱 Bot Token: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
-print(f"🔑 API Key: {DEEPSEEK_API_KEY[:10]}...{DEEPSEEK_API_KEY[-5:]}")
+print("🚀 Starting DeepSeek AI Bot...")
 
-async def start(update: Update, context: CallbackContext) -> None:
-    """Send welcome message when user sends /start"""
-    user = update.effective_user
-    welcome_text = f"""
-🎉 **नमस्ते {user.first_name}!** 🙏
-
-🤖 **मैं DeepSeek AI Powered Bot हूं!**
-
-✨ **मेरी capabilities:**
-• 💬 Intelligent Conversations
-• 💻 Coding & Programming Help  
-• 📚 Learning Assistance
-• ✍️ Content Writing
-• 🔍 Problem Solving
-• 🌐 Multi-language Support
-
-🚀 **शुरुआत करें:**
-बस कोई भी message type करें और मैं आपकी help करूंगा!
-
-📝 **Available Commands:**
-/start - Bot शुरू करें
-/help - सहायता प्राप्त करें
-
-**Developed with ❤️ for AI Enthusiasts**
-    """
-    await update.message.reply_text(welcome_text)
-
-async def help_command(update: Update, context: CallbackContext) -> None:
-    """Send help message when user sends /help"""
-    help_text = """
-🆘 **Help Guide**
-
-📖 **How to Use:**
-• Simply type any message and I'll respond
-• Ask questions in any language
-• Get coding help, writing assistance, etc.
-
-🔧 **Available Commands:**
-/start - Start the bot
-/help - Show this help message
-
-💡 **Examples:**
-• "Python में list कैसे बनाएं?"
-• "Explain quantum computing"
-• "Help me write an email"
-• "What is 2+2?"
-
-❓ **Need more help?**
-Just type your question naturally!
-    """
-    await update.message.reply_text(help_text)
-
-async def handle_message(update: Update, context: CallbackContext) -> None:
-    """Handle incoming messages"""
+def call_deepseek_api(message):
+    """Call DeepSeek API and return response"""
     try:
-        user_message = update.message.text
-        user = update.effective_user
-        
-        print(f"📩 User {user.id} ({user.first_name}): {user_message}")
-        
-        # Show typing action
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action="typing"
-        )
-        
-        # Call DeepSeek API
         headers = {
             'Authorization': f'Bearer {DEEPSEEK_API_KEY}',
             'Content-Type': 'application/json'
@@ -92,13 +17,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
         data = {
             "model": "deepseek-chat",
-            "messages": [
-                {
-                    "role": "user", 
-                    "content": user_message
-                }
-            ],
-            "stream": False
+            "messages": [{"role": "user", "content": message}]
         }
         
         response = requests.post(
@@ -109,41 +28,101 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         )
         
         if response.status_code == 200:
-            result = response.json()
-            bot_reply = result['choices'][0]['message']['content']
-            
-            # Send response
-            await update.message.reply_text(bot_reply)
-            print(f"✅ Response sent to user {user.id}")
-            
+            return response.json()['choices'][0]['message']['content']
         else:
-            error_msg = f"❌ API Error: {response.status_code}"
-            await update.message.reply_text("माफ करें, technical issue आ रहा है। कृपया कुछ देर बाद try करें।")
-            print(error_msg)
+            return f"Error: API returned status {response.status_code}"
             
     except Exception as e:
-        error_message = f"❌ Error: {str(e)}"
-        await update.message.reply_text("माफ करें, कुछ error आया। कृपया बाद में try करें।")
-        print(error_message)
+        return f"Error: {str(e)}"
 
-def main() -> None:
-    """Start the bot."""
+def get_updates(offset=None):
+    """Get new messages from Telegram"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {'timeout': 30, 'offset': offset}
+    
     try:
-        # Create the Application
-        application = Application.builder().token(BOT_TOKEN).build()
+        response = requests.get(url, params=params, timeout=35)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except:
+        return None
+
+def send_message(chat_id, text):
+    """Send message to Telegram user"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {'chat_id': chat_id, 'text': text}
+    
+    try:
+        requests.post(url, json=data, timeout=10)
+        return True
+    except:
+        return False
+
+def process_message(update):
+    """Process incoming message"""
+    if 'message' not in update:
+        return None
+    
+    message = update['message']
+    chat_id = message['chat']['id']
+    text = message.get('text', '')
+    update_id = update['update_id']
+    
+    print(f"📩 Received: {text}")
+    
+    if text.startswith('/start'):
+        welcome_msg = """
+🎉 नमस्ते! मैं DeepSeek AI Bot हूं!
+
+🤖 मैं AI की मदद से आपके सवालों के जवाब दे सकता हूं।
+
+💡 बस कोई भी message type करें जैसे:
+• "Hello"
+• "Python में list कैसे बनाएं?"
+• "2+2 क्या है?"
+• "Email लिखने में मदद करें"
+
+मैं आपकी help करूंगा! 😊
+        """
+        send_message(chat_id, welcome_msg)
+        return update_id
         
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    elif text.startswith('/'):
+        # Ignore other commands
+        return update_id
         
-        # Start the Bot
-        print("✅ Bot setup completed successfully!")
-        print("🔄 Starting polling...")
-        application.run_polling(drop_pending_updates=True)
-        
-    except Exception as e:
-        print(f"💥 Failed to start bot: {e}")
+    else:
+        # Get AI response
+        ai_response = call_deepseek_api(text)
+        send_message(chat_id, ai_response)
+        return update_id
+
+def main():
+    """Main bot loop"""
+    print("✅ Bot started successfully!")
+    print("📱 Waiting for messages...")
+    
+    last_update_id = None
+    
+    while True:
+        try:
+            # Get updates from Telegram
+            updates_data = get_updates(last_update_id)
+            
+            if updates_data and updates_data.get('ok'):
+                for update in updates_data['result']:
+                    last_update_id = process_message(update)
+                    
+                    if last_update_id:
+                        last_update_id += 1  # Move to next update
+                
+            # Wait before next check
+            time.sleep(1)
+            
+        except Exception as e:
+            print(f"❌ Error in main loop: {e}")
+            time.sleep(5)
 
 if __name__ == '__main__':
     main()
