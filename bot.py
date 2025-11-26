@@ -1,189 +1,340 @@
-import requests
-import time
+from flask import Flask, request, jsonify
+from pyrogram import Client, filters
+from pyrogram.types import Message
+import asyncio
+import threading
+import os
 import logging
+import time
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Flask app setup
+app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Configuration
-BOT_TOKEN = "8339585926:AAEeluPGVakchVJ7TPDlIkio6A1HPYy4wRg"
-DEEPSEEK_API_KEY = "sk-9b569ed95c7947fb982587f53bec6e15"
+# Bot configuration
+BOT_TOKEN = "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM"
+API_ID = 25136703
+API_HASH = "accfaf5ecd981c67e481328515c39f89"
 
-print("🚀 Starting AI Bot with Debug...")
+# Store user sessions
+user_sessions = {}
 
-def get_ai_response(message):
-    """Get AI response with detailed debugging"""
+# Welcome Messages
+WELCOME_MESSAGE = """
+🤖 **Welcome to String Session Generator Bot!**
+
+I will help you generate Pyrogram String Session for your Telegram account.
+
+**Features:**
+✅ Fast & Secure Session Generation
+✅ Only Mobile Verification Required  
+✅ No API ID/Hash Asked from Users
+✅ 2FA Password Support
+✅ 100% Free Service
+
+Click /start to begin your session generation!
+"""
+
+START_MESSAGE = """
+🎉 **String Session Generator Started!**
+
+I'll help you generate a Pyrogram String Session for your Telegram account.
+
+**How it works:**
+1. Send your phone number (with country code)
+2. You'll receive a verification code on Telegram
+3. Send that verification code to me
+4. Get your String Session instantly!
+
+**Commands:**
+/start - Show this message
+/generate - Start session generation
+/cancel - Cancel current process
+
+Click /generate to begin! 🚀
+"""
+
+HELP_MESSAGE = """
+📖 **Help Guide**
+
+**What is String Session?**
+String Session is a way to authorize your Telegram account in Pyrogram applications without using bot tokens.
+
+**How to use:**
+1. Use /generate to start
+2. Enter your phone number (with country code)
+3. Enter verification code sent to your Telegram
+4. If you have 2FA, enter your password
+5. Copy your generated string session
+
+**Safety Tips:**
+🔒 Never share your string session with anyone
+🗑️ Regenerate if you suspect it's compromised
+💾 Store it in a secure place
+
+Need help? Contact developer!
+"""
+
+# Initialize Pyrogram Client
+bot = Client(
+    "session_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    in_memory=True
+)
+
+class SessionManager:
+    def __init__(self):
+        self.sessions = {}
+    
+    def create_user_session(self, user_id, phone_number):
+        """Create a new session for user"""
+        try:
+            client = Client(
+                f"sessions/{user_id}_{int(time.time())}",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                in_memory=True
+            )
+            
+            self.sessions[user_id] = {
+                'client': client,
+                'phone_number': phone_number,
+                'step': 'phone',
+                'created_at': time.time()
+            }
+            
+            logger.info(f"New session created for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error creating session for {user_id}: {e}")
+            return False
+    
+    def get_user_session(self, user_id):
+        """Get user session data"""
+        return self.sessions.get(user_id)
+    
+    def update_session_step(self, user_id, step):
+        """Update user session step"""
+        if user_id in self.sessions:
+            self.sessions[user_id]['step'] = step
+    
+    def delete_user_session(self, user_id):
+        """Delete user session"""
+        if user_id in self.sessions:
+            try:
+                client = self.sessions[user_id]['client']
+                if client.is_connected:
+                    client.disconnect()
+            except:
+                pass
+            del self.sessions[user_id]
+            logger.info(f"Session deleted for user {user_id}")
+
+# Initialize session manager
+session_manager = SessionManager()
+
+# Bot Handlers
+@bot.on_message(filters.command("start"))
+async def start_command(client: Client, message: Message):
+    """Handle /start command"""
     try:
-        headers = {
-            'Authorization': f'Bearer {DEEPSEEK_API_KEY}',
-            'Content-Type': 'application/json'
-        }
+        user_id = message.from_user.id
+        first_name = message.from_user.first_name
         
-        data = {
-            "model": "deepseek-chat",
-            "messages": [{"role": "user", "content": message}],
-            "max_tokens": 500
-        }
+        welcome_text = f"""
+👋 Hello **{first_name}**!
+
+{WELCOME_MESSAGE}
+        """
         
-        logger.info(f"Calling DeepSeek API with message: {message}")
+        await message.reply_text(welcome_text)
+        logger.info(f"Start command received from {user_id}")
         
-        response = requests.post(
-            'https://api.deepseek.com/chat/completions',
-            headers=headers,
-            json=data,
-            timeout=45
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
+        await message.reply_text("❌ An error occurred. Please try again.")
+
+@bot.on_message(filters.command("help"))
+async def help_command(client: Client, message: Message):
+    """Handle /help command"""
+    await message.reply_text(HELP_MESSAGE)
+
+@bot.on_message(filters.command("generate"))
+async def generate_command(client: Client, message: Message):
+    """Handle /generate command"""
+    try:
+        user_id = message.from_user.id
+        
+        # Check if user already has active session
+        if session_manager.get_user_session(user_id):
+            await message.reply_text(
+                "⚠️ You already have an active session. Please complete it first or use /cancel to start over."
+            )
+            return
+        
+        await message.reply_text(
+            "📱 **Step 1: Phone Number**\n\n"
+            "Please send your phone number in international format:\n"
+            "• Example: **+919876543210**\n"
+            "• Example: **+1234567890**\n\n"
+            "Or use /cancel to stop the process."
         )
         
-        logger.info(f"API Response Status: {response.status_code}")
-        logger.info(f"API Response Headers: {response.headers}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            response_text = result['choices'][0]['message']['content']
-            logger.info(f"API Success - Response: {response_text[:100]}...")
-            return response_text
-            
-        elif response.status_code == 401:
-            logger.error("API Error 401: Unauthorized - Invalid API Key")
-            return "❌ API Key invalid. Please check DeepSeek dashboard."
-            
-        elif response.status_code == 402:
-            logger.error("API Error 402: Payment Required")
-            return "❌ API quota exceeded. Please add credits to DeepSeek account."
-            
-        elif response.status_code == 429:
-            logger.error("API Error 429: Rate Limit Exceeded")
-            return "❌ Rate limit exceeded. Please wait a moment."
-            
-        else:
-            logger.error(f"API Error {response.status_code}: {response.text}")
-            return f"❌ API Error {response.status_code}. Please try again later."
-            
-    except requests.exceptions.Timeout:
-        logger.error("API Timeout")
-        return "❌ Request timeout. Please try again."
-        
-    except requests.exceptions.ConnectionError:
-        logger.error("Connection Error")
-        return "❌ Connection error. Please check your internet."
-        
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        return f"❌ Unexpected error: {str(e)}"
+        logger.error(f"Error in generate command: {e}")
+        await message.reply_text("❌ An error occurred. Please try again.")
 
-def get_updates(offset=None):
-    """Get new messages from Telegram"""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {'timeout': 30, 'offset': offset}
+@bot.on_message(filters.command("cancel"))
+async def cancel_command(client: Client, message: Message):
+    """Handle /cancel command"""
+    user_id = message.from_user.id
+    session_manager.delete_user_session(user_id)
+    await message.reply_text("✅ Process cancelled. Use /generate to start again.")
+
+@bot.on_message(filters.text & filters.private)
+async def handle_text_messages(client: Client, message: Message):
+    """Handle all text messages"""
+    try:
+        user_id = message.from_user.id
+        text = message.text.strip()
+        
+        # Ignore command messages
+        if text.startswith('/'):
+            return
+        
+        user_session = session_manager.get_user_session(user_id)
+        
+        if not user_session:
+            # No active session - prompt to start
+            await message.reply_text(
+                "🤖 Welcome! I can generate Pyrogram string sessions.\n\n"
+                "Use /generate to start the process or /help for more information."
+            )
+            return
+        
+        current_step = user_session['step']
+        
+        if current_step == 'phone':
+            await handle_phone_number(client, message, user_session, text)
+        
+        elif current_step == 'code':
+            await handle_verification_code(client, message, user_session, text)
+        
+        elif current_step == 'password':
+            await handle_2fa_password(client, message, user_session, text)
+            
+    except Exception as e:
+        logger.error(f"Error handling text message: {e}")
+        await message.reply_text("❌ An error occurred. Please use /generate to start over.")
+
+async def handle_phone_number(client: Client, message: Message, user_session, phone_number):
+    """Handle phone number input"""
+    user_id = message.from_user.id
+    
+    # Validate phone number format
+    if not (phone_number.startswith('+') and len(phone_number) > 10):
+        await message.reply_text(
+            "❌ Invalid phone number format.\n\n"
+            "Please send your phone number in international format:\n"
+            "• **+919876543210** (India)\n"
+            "• **+1234567890** (US)\n\n"
+            "Make sure it starts with '+' and includes country code."
+        )
+        return
     
     try:
-        response = requests.get(url, params=params, timeout=35)
-        logger.info(f"Telegram API Status: {response.status_code}")
+        # Create user client and send code
+        user_client = user_session['client']
+        await user_client.connect()
         
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"Telegram API Error: {response.status_code} - {response.text}")
-            return None
-            
+        sent_code = await user_client.send_code(phone_number)
+        
+        # Update session data
+        user_session['phone_code_hash'] = sent_code.phone_code_hash
+        session_manager.update_session_step(user_id, 'code')
+        
+        await message.reply_text(
+            "📨 **Step 2: Verification Code**\n\n"
+            "I've sent a verification code to your Telegram account.\n\n"
+            "Please check your messages and send me the **6-digit code** you received.\n\n"
+            "Or use /cancel to stop the process."
+        )
+        logger.info(f"Verification code sent to {phone_number}")
+        
     except Exception as e:
-        logger.error(f"Telegram connection error: {e}")
-        return None
+        error_msg = str(e).lower()
+        if "phone number invalid" in error_msg:
+            await message.reply_text(
+                "❌ Invalid phone number.\n\n"
+                "Please check your phone number and try again with country code."
+            )
+        elif "flood" in error_msg:
+            await message.reply_text(
+                "⏳ Too many attempts. Please wait a while before trying again."
+            )
+        else:
+            await message.reply_text(
+                "❌ Error sending verification code. Please try again with /generate"
+            )
+            logger.error(f"Error sending code: {e}")
+        
+        # Clean up
+        session_manager.delete_user_session(user_id)
 
-def send_message(chat_id, text):
-    """Send message to Telegram user"""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+async def handle_verification_code(client: Client, message: Message, user_session, code):
+    """Handle verification code input"""
+    user_id = message.from_user.id
+    phone_number = user_session['phone_number']
     
-    # Split long messages
-    if len(text) > 4096:
-        text = text[:4090] + "..."
-    
-    data = {'chat_id': chat_id, 'text': text}
+    # Validate code format
+    if not (code.isdigit() and len(code) == 6):
+        await message.reply_text(
+            "❌ Invalid code format.\n\n"
+            "Please send the **6-digit** verification code you received.\n"
+            "Example: **123456**"
+        )
+        return
     
     try:
-        response = requests.post(url, json=data, timeout=10)
-        if response.status_code == 200:
-            logger.info(f"Message sent to {chat_id}")
-            return True
-        else:
-            logger.error(f"Send message failed: {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"Send message error: {e}")
-        return False
-
-def process_message(update):
-    """Process incoming message"""
-    if 'message' not in update:
-        return None
-    
-    message = update['message']
-    chat_id = message['chat']['id']
-    text = message.get('text', '')
-    update_id = update['update_id']
-    
-    logger.info(f"📩 Processing message from {chat_id}: {text}")
-    
-    if text.startswith('/start'):
-        welcome_msg = """
-🎉 नमस्ते! मैं DeepSeek AI Bot हूं!
-
-🤖 मैं AI की मदद से आपके सवालों के जवाब दे सकता हूं।
-
-💡 बस कोई भी message type करें:
-• "Hello"
-• "Python में list कैसे बनाएं?"
-• "2+2 क्या है?"
-• कुछ भी पूछें!
-
-मैं आपकी help करूंगा! 😊
-        """
-        send_message(chat_id, welcome_msg)
-        return update_id
+        user_client = user_session['client']
         
-    elif text.startswith('/status'):
-        status_msg = "✅ Bot is running and active!"
-        send_message(chat_id, status_msg)
-        return update_id
+        # Sign in with the code
+        await user_client.sign_in(
+            phone_number=phone_number,
+            phone_code_hash=user_session['phone_code_hash'],
+            phone_code=code
+        )
         
-    elif text.startswith('/'):
-        # Ignore other commands
-        return update_id
+        # Generate string session
+        string_session = await user_client.export_session_string()
         
-    else:
-        # Get AI response
-        thinking_msg = "🤔 Thinking..."
-        send_message(chat_id, thinking_msg)
-        
-        ai_response = get_ai_response(text)
-        send_message(chat_id, ai_response)
-        return update_id
+        # Send success message
+        success_message = f"""
+✅ **String Session Generated Successfully!**
 
-def main():
-    """Main bot loop"""
-    logger.info("✅ Bot started successfully!")
-    logger.info("📱 Waiting for messages...")
-    
-    last_update_id = None
-    
-    while True:
-        try:
-            updates_data = get_updates(last_update_id)
-            
-            if updates_data and updates_data.get('ok'):
-                for update in updates_data['result']:
-                    last_update_id = process_message(update)
-                    if last_update_id:
-                        last_update_id += 1
-            else:
-                logger.info("No new messages...")
-                
-            time.sleep(2)
-            
-        except Exception as e:
-            logger.error(f"❌ Main loop error: {e}")
-            time.sleep(10)
+**Your String Session:**
+```{string_session}```
 
-if __name__ == '__main__':
-    main()
+**Important Instructions:**
+🔒 **Keep it Secure:** Never share this session string
+🗑️ **Regenerate if compromised:** Use /generate to create new one
+💾 **Store Safely:** Save it in a secure place
+
+**Usage in Pyrogram:**
+```python
+from pyrogram import Client
+
+app = Client(
+    "my_account",
+    session_string="{string_session}",
+    api_id=API_ID,
+    api_hash=API_HASH
+)
