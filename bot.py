@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import threading
 import os
@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM"
 API_ID = 25136703
 API_HASH = "accfaf5ecd981c67e481328515c39f89"
+
+# Support Channel
+SUPPORT_CHANNEL = "shribots"
 
 # Welcome Messages
 WELCOME_MESSAGE = """
@@ -57,7 +60,7 @@ I'll help you generate a Pyrogram String Session for your Telegram account.
 Click /generate to begin! 🚀
 """
 
-HELP_MESSAGE = """
+HELP_MESSAGE = f"""
 📖 **Help Guide**
 
 **What is String Session?**
@@ -75,7 +78,8 @@ String Session is a way to authorize your Telegram account in Pyrogram applicati
 🗑️ Regenerate if you suspect it's compromised
 💾 Store it in a secure place
 
-Need help? Contact developer!
+**Support:**
+Join our channel for updates and support: @{SUPPORT_CHANNEL}
 """
 
 # Initialize Pyrogram Client
@@ -138,6 +142,28 @@ class SessionManager:
 # Initialize session manager
 session_manager = SessionManager()
 
+# Create inline keyboards
+def get_start_keyboard():
+    """Keyboard for start command"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Generate Session", callback_data="generate")],
+        [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")],
+        [InlineKeyboardButton("❓ Help", callback_data="help")]
+    ])
+
+def get_support_keyboard():
+    """Keyboard with support button"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Join Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")]
+    ])
+
+def get_session_keyboard():
+    """Keyboard after session generation"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")],
+        [InlineKeyboardButton("🔄 Generate New", callback_data="generate")]
+    ])
+
 # Bot Handlers
 @bot.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
@@ -148,7 +174,10 @@ async def start_command(client: Client, message: Message):
         
         welcome_text = f"👋 Hello **{first_name}**!\n\n{WELCOME_MESSAGE}"
         
-        await message.reply_text(welcome_text)
+        await message.reply_text(
+            welcome_text,
+            reply_markup=get_start_keyboard()
+        )
         logger.info(f"Start command received from {user_id}")
         
     except Exception as e:
@@ -158,7 +187,10 @@ async def start_command(client: Client, message: Message):
 @bot.on_message(filters.command("help"))
 async def help_command(client: Client, message: Message):
     """Handle /help command"""
-    await message.reply_text(HELP_MESSAGE)
+    await message.reply_text(
+        HELP_MESSAGE,
+        reply_markup=get_support_keyboard()
+    )
 
 @bot.on_message(filters.command("generate"))
 async def generate_command(client: Client, message: Message):
@@ -190,6 +222,51 @@ async def cancel_command(client: Client, message: Message):
     session_manager.delete_user_session(user_id)
     await message.reply_text("✅ Process cancelled. Use /generate to start again.")
 
+@bot.on_message(filters.command("support"))
+async def support_command(client: Client, message: Message):
+    """Handle /support command"""
+    await message.reply_text(
+        f"📢 **Support Channel**\n\nJoin our channel for updates and support:\n@**{SUPPORT_CHANNEL}**",
+        reply_markup=get_support_keyboard()
+    )
+
+# Callback query handler
+@bot.on_callback_query()
+async def handle_callbacks(client: Client, callback_query):
+    """Handle inline keyboard callbacks"""
+    try:
+        data = callback_query.data
+        user_id = callback_query.from_user.id
+        
+        if data == "generate":
+            # Check if user already has active session
+            if session_manager.get_user_session(user_id):
+                await callback_query.answer("You already have an active session!", show_alert=True)
+                return
+            
+            await callback_query.message.edit_text(
+                "📱 **Step 1: Phone Number**\n\n"
+                "Please send your phone number in international format:\n"
+                "• Example: **+919876543210**\n"
+                "• Example: **+1234567890**\n\n"
+                "Or use /cancel to stop the process."
+            )
+            
+        elif data == "help":
+            await callback_query.message.edit_text(
+                HELP_MESSAGE,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚀 Generate Session", callback_data="generate")],
+                    [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")]
+                ])
+            )
+            
+        await callback_query.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in callback: {e}")
+        await callback_query.answer("Error occurred!", show_alert=True)
+
 @bot.on_message(filters.text & filters.private)
 async def handle_text_messages(client: Client, message: Message):
     """Handle all text messages"""
@@ -205,7 +282,10 @@ async def handle_text_messages(client: Client, message: Message):
         
         if not user_session:
             # No active session - prompt to start
-            await message.reply_text("🤖 Welcome! I can generate Pyrogram string sessions.\n\nUse /generate to start the process or /help for more information.")
+            await message.reply_text(
+                "🤖 Welcome! I can generate Pyrogram string sessions.\n\nUse /generate to start the process or /help for more information.",
+                reply_markup=get_start_keyboard()
+            )
             return
         
         current_step = user_session['step']
