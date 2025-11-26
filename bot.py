@@ -378,24 +378,201 @@ async def handle_verification_code(client: Client, message: Message, user_sessio
         # Generate string session
         string_session = await user_client.export_session_string()
         
-        # Send success message - FIXED: No f-string issue
-        success_message = f"""✅ **String Session Generated Successfully!**
+        # Send success message - FIXED: Properly terminated f-string
+        success_message = (
+            f"✅ **String Session Generated Successfully!**\n\n"
+            f"**Your String Session:**\n"
+            f"```{string_session}```\n\n"
+            f"**Important Instructions:**\n"
+            f"🔒 **Keep it Secure:** Never share this session string\n"
+            f"🗑️ **Regenerate if compromised:** Use /generate to create new one\n"
+            f"💾 **Store Safely:** Save it in a secure place\n\n"
+            f"**Usage in Pyrogram:**\n"
+            f"```python\n"
+            f"from pyrogram import Client\n\n"
+            f"app = Client(\n"
+            f"    \"my_account\",\n"
+            f"    session_string=\"{string_session}\",\n"
+            f"    api_id=API_ID,\n"
+            f"    api_hash=API_HASH\n"
+            f")\n"
+            f"```\n\n"
+            f"**Support:**\n"
+            f"Join @{SUPPORT_CHANNEL} for help and updates.\n\n"
+            f"🎉 **Thank you for using our service!**"
+        )
+        
+        await message.reply_text(
+            success_message,
+            reply_markup=get_session_keyboard()
+        )
+        logger.info(f"String session generated for user {user_id}")
+        
+        # Clean up
+        await user_client.disconnect()
+        session_manager.delete_user_session(user_id)
+        
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        if "phone code invalid" in error_msg:
+            await message.reply_text("❌ Invalid verification code.\n\nPlease check the code and try again.\nMake sure you're entering the latest code received.")
+        elif "session password needed" in error_msg:
+            session_manager.update_session_step(user_id, 'password')
+            await message.reply_text(
+                "🔒 **Step 3: 2FA Password**\n\n"
+                "Your account has two-step verification enabled.\n\n"
+                "Please send your **2FA password** to continue.\n\n"
+                "Or use /cancel to stop the process."
+            )
+        elif "flood" in error_msg:
+            await message.reply_text("⏳ Too many attempts. Please wait before trying again.")
+            session_manager.delete_user_session(user_id)
+        else:
+            await message.reply_text("❌ Error verifying code. Please start over with /generate")
+            logger.error(f"Error verifying code: {e}")
+            session_manager.delete_user_session(user_id)
 
-**Your String Session:**
-```{string_session}```
+async def handle_2fa_password(client: Client, message: Message, user_session, password):
+    """Handle 2FA password input"""
+    user_id = message.from_user.id
+    
+    try:
+        user_client = user_session['client']
+        
+        # Check password and sign in
+        await user_client.check_password(password=password)
+        
+        # Generate string session
+        string_session = await user_client.export_session_string()
+        
+        # Send success message - FIXED: Properly terminated f-string
+        success_message = (
+            f"✅ **String Session Generated Successfully!**\n\n"
+            f"**Your String Session:**\n"
+            f"```{string_session}```\n\n"
+            f"**Important Instructions:**\n"
+            f"🔒 **Keep it Secure:** Never share this session string\n"
+            f"🗑️ **Regenerate if compromised:** Use /generate to create new one\n"
+            f"💾 **Store Safely:** Save it in a secure place\n\n"
+            f"**Usage in Pyrogram:**\n"
+            f"```python\n"
+            f"from pyrogram import Client\n\n"
+            f"app = Client(\n"
+            f"    \"my_account\",\n"
+            f"    session_string=\"{string_session}\",\n"
+            f"    api_id=API_ID,\n"
+            f"    api_hash=API_HASH\n"
+            f")\n"
+            f"```\n\n"
+            f"**Support:**\n"
+            f"Join @{SUPPORT_CHANNEL} for help and updates.\n\n"
+            f"🎉 **Thank you for using our service!**"
+        )
+        
+        await message.reply_text(
+            success_message,
+            reply_markup=get_session_keyboard()
+        )
+        logger.info(f"String session generated with 2FA for user {user_id}")
+        
+        # Clean up
+        await user_client.disconnect()
+        session_manager.delete_user_session(user_id)
+        
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        if "password" in error_msg and "invalid" in error_msg:
+            await message.reply_text("❌ Invalid 2FA password.\n\nPlease check your password and try again.\n\nOr use /cancel to stop the process.")
+        else:
+            await message.reply_text("❌ Error verifying password. Please start over with /generate")
+            logger.error(f"Error verifying 2FA: {e}")
+            session_manager.delete_user_session(user_id)
 
-**Important Instructions:**
-🔒 **Keep it Secure:** Never share this session string
-🗑️ **Regenerate if compromised:** Use /generate to create new one
-💾 **Store Safely:** Save it in a secure place
+# Flask Routes
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "running",
+        "service": "Telegram String Session Bot",
+        "version": "1.0",
+        "support_channel": f"@{SUPPORT_CHANNEL}",
+        "endpoints": {
+            "home": "/",
+            "health": "/health",
+            "stats": "/stats"
+        }
+    })
 
-**Usage in Pyrogram:**
-```python
-from pyrogram import Client
+@app.route('/health')
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "timestamp": time.time(),
+        "active_sessions": len(session_manager.sessions),
+        "support_channel": SUPPORT_CHANNEL
+    })
 
-app = Client(
-    "my_account",
-    session_string="{string_session}",
-    api_id=API_ID,
-    api_hash=API_HASH
-)
+@app.route('/stats')
+def stats():
+    return jsonify({
+        "active_sessions": len(session_manager.sessions),
+        "service": "String Session Generator Bot",
+        "support": f"@{SUPPORT_CHANNEL}",
+        "uptime": "running"
+    })
+
+# Bot Runner Functions
+async def start_telegram_bot():
+    """Start the Telegram bot"""
+    try:
+        await bot.start()
+        logger.info("🤖 Telegram Bot Started Successfully!")
+        
+        # Get bot info
+        bot_info = await bot.get_me()
+        logger.info(f"Bot Username: @{bot_info.username}")
+        logger.info(f"Bot Name: {bot_info.first_name}")
+        
+        print("\n" + "="*50)
+        print("🎉 STRING SESSION BOT STARTED SUCCESSFULLY!")
+        print("="*50)
+        print(f"Bot: @{bot_info.username}")
+        print(f"Name: {bot_info.first_name}")
+        print(f"Support: @{SUPPORT_CHANNEL}")
+        print("Status: ✅ Running")
+        print("Deployment: 🚀 Render")
+        print("="*50)
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise e
+
+def run_bot():
+    """Run bot in background thread"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_telegram_bot())
+    loop.run_forever()
+
+# Application Startup
+if __name__ == "__main__":
+    # Create sessions directory
+    os.makedirs("sessions", exist_ok=True)
+    
+    # Start Telegram bot in background thread
+    logger.info("Starting Telegram Bot...")
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # Start Flask server
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting Flask server on port {port}")
+    
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False,
+        use_reloader=False
+    )
