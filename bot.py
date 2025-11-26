@@ -12,6 +12,10 @@ app = Flask(__name__)
 def home():
     return "🤖 Telegram + DeepSeek Bot is Active!"
 
+@app.route('/health')
+def health():
+    return "✅ Bot is healthy!"
+
 # Configuration
 BOT_TOKEN = "8339585926:AAEeluPGVakchVJ7TPDlIkio6A1HPYy4wRg"
 DEEPSEEK_API_KEY = "sk-9b569ed95c7947fb982587f53bec6e15"
@@ -54,10 +58,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text)
 
 async def owner_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    owner_text = """
+    owner_text = f"""
 👨‍💻 **Bot Owner Information:**
 
-🆔 Owner ID: 8272213732
+🆔 Owner ID: {OWNER_ID}
 📧 Contact: @username (Telegram)
 
 🤖 This bot is powered by:
@@ -102,12 +106,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = response.json()
             bot_reply = result['choices'][0]['message']['content']
             
-            # Send response to user
-            await update.message.reply_text(bot_reply)
+            # Send response to user (split if too long)
+            if len(bot_reply) > 4096:
+                for x in range(0, len(bot_reply), 4096):
+                    await update.message.reply_text(bot_reply[x:x+4096])
+            else:
+                await update.message.reply_text(bot_reply)
+                
             logger.info(f"Response sent to user {user_id}")
             
         else:
-            error_msg = f"❌ API Error: {response.status_code} - {response.text}"
+            error_msg = f"❌ API Error: {response.status_code}"
             await update.message.reply_text("माफ करें, technical issue आ रहा है। कृपया कुछ देर बाद try करें।")
             logger.error(error_msg)
             
@@ -116,8 +125,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("माफ करें, कुछ error आया। कृपया बाद में try करें।")
         logger.error(error_message)
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}")
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Exception while handling an update: {context.error}")
 
 def main():
     """Start the bot."""
@@ -136,10 +145,24 @@ def main():
         
         # Start the Bot
         logger.info("🤖 Bot is starting...")
-        application.run_polling(drop_pending_updates=True)
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
 
 if __name__ == '__main__':
+    # Run both Flask app and Telegram bot
+    import threading
+    
+    # Start Flask in a separate thread
+    flask_thread = threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=8000, debug=False, use_reloader=False)
+    )
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Start Telegram bot
     main()
