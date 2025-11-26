@@ -1,7 +1,8 @@
 import os
 import logging
 import requests
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from flask import Flask, render_template_string
 import threading
 
@@ -119,7 +120,7 @@ def health():
     return {"status": "healthy", "service": "telegram-bot", "owner": OWNER_ID}
 
 # ==================== DEEPSEEK API SERVICE ====================
-def get_ai_response(user_message):
+async def get_ai_response(user_message):
     """Get response from DeepSeek API"""
     try:
         headers = {
@@ -162,9 +163,9 @@ def get_ai_response(user_message):
         return "❌ Sorry, I encountered an error. Please try again later."
 
 # ==================== TELEGRAM BOT HANDLERS ====================
-def start_command(update, context):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
-    user = update.message.from_user
+    user = update.effective_user
     welcome_text = f"""
 🎉 **नमस्ते {user.first_name}!** 🙏
 
@@ -188,9 +189,9 @@ def start_command(update, context):
 
 **Bot Owner ID:** `{OWNER_ID}`
     """
-    update.message.reply_text(welcome_text)
+    await update.message.reply_text(welcome_text)
 
-def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command"""
     help_text = """
 🆘 **Help Guide - सहायता मार्गदर्शिका**
@@ -214,9 +215,9 @@ def help_command(update, context):
 ❓ **Need more help?**
 Just type your question naturally!
     """
-    update.message.reply_text(help_text)
+    await update.message.reply_text(help_text)
 
-def about_command(update, context):
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /about command"""
     about_text = f"""
 🤖 **About This Bot**
@@ -237,34 +238,34 @@ def about_command(update, context):
 
 📞 **Support:** Contact owner ID: {OWNER_ID}
     """
-    update.message.reply_text(about_text)
+    await update.message.reply_text(about_text)
 
-def handle_message(update, context):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all text messages"""
     user_message = update.message.text
-    user = update.message.from_user
+    user = update.effective_user
     
     logger.info(f"User {user.id} ({user.first_name}): {user_message}")
     
     # Send typing action
-    context.bot.send_chat_action(
-        chat_id=update.message.chat_id,
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id,
         action="typing"
     )
     
     # Get AI response
-    bot_response = get_ai_response(user_message)
+    bot_response = await get_ai_response(user_message)
     
     # Send response (split if too long)
     if len(bot_response) > 4096:
         for i in range(0, len(bot_response), 4096):
-            update.message.reply_text(bot_response[i:i+4096])
+            await update.message.reply_text(bot_response[i:i+4096])
     else:
-        update.message.reply_text(bot_response)
+        await update.message.reply_text(bot_response)
     
     logger.info(f"Response sent to user {user.id}")
 
-def error_handler(update, context):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors"""
     logger.error(f"Error: {context.error}")
 
@@ -272,26 +273,23 @@ def error_handler(update, context):
 def setup_bot():
     """Setup and start the Telegram bot"""
     try:
-        # Create Updater - use_context is not needed in newer versions
-        updater = Updater(BOT_TOKEN)
-        dispatcher = updater.dispatcher
+        # Create Application (new way in python-telegram-bot v20+)
+        application = Application.builder().token(BOT_TOKEN).build()
         
         # Add handlers
-        dispatcher.add_handler(CommandHandler("start", start_command))
-        dispatcher.add_handler(CommandHandler("help", help_command))
-        dispatcher.add_handler(CommandHandler("about", about_command))
-        dispatcher.add_handler(MessageHandler(filters.TEXT, handle_message))
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("about", about_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Add error handler
-        dispatcher.add_error_handler(error_handler)
+        application.add_error_handler(error_handler)
         
-        # Start polling
-        updater.start_polling()
-        logger.info("✅ Telegram Bot started successfully!")
-        return updater
+        logger.info("✅ Telegram Bot application created successfully!")
+        return application
         
     except Exception as e:
-        logger.error(f"❌ Failed to start bot: {e}")
+        logger.error(f"❌ Failed to setup bot: {e}")
         return None
 
 def start_flask():
@@ -308,15 +306,16 @@ def main():
     flask_thread.start()
     logger.info("✅ Flask server started on port 8000")
     
-    # Start Telegram bot
-    bot_updater = setup_bot()
+    # Setup and start Telegram bot
+    application = setup_bot()
     
-    if bot_updater:
-        logger.info("🤖 Bot is now running and ready to receive messages!")
-        logger.info("📱 Search for your bot on Telegram and send /start to test")
-        
-        # Keep the main thread alive
-        bot_updater.idle()
+    if application:
+        try:
+            logger.info("🔄 Starting bot polling...")
+            application.run_polling(drop_pending_updates=True)
+            logger.info("🤖 Bot is now running and ready to receive messages!")
+        except Exception as e:
+            logger.error(f"💥 Error during polling: {e}")
     else:
         logger.error("💥 Failed to start bot")
 
