@@ -1,13 +1,13 @@
 import os
 import logging
-from pyrogram import Client, filters
+import asyncio
+import re
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import (
     PhoneNumberInvalid, PhoneCodeInvalid, PhoneCodeExpired,
     SessionPasswordNeeded, PasswordHashInvalid, FloodWait
 )
-import asyncio
-import re
 
 # Configure logging
 logging.basicConfig(
@@ -16,10 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM")
-API_ID = int(os.environ.get("API_ID", 25136703))
-API_HASH = os.environ.get("API_HASH", "accfaf5ecd981c67e481328515c39f89")
+# Bot configuration - APNA BOT TOKEN YAHI DALNA
+BOT_TOKEN = "8350139839:AAHKChyb6VhRtJYx8R4BKDttllh-AhbSPMM"
+API_ID = 25136703
+API_HASH = "accfaf5ecd981c67e481328515c39f89"
 SUPPORT_CHANNEL = "shribots"
 
 # Initialize bot
@@ -34,181 +34,285 @@ bot = Client(
 # Store user sessions
 user_sessions = {}
 
-def validate_phone(phone):
-    return re.match(r'^\+\d{10,15}$', phone) is not None
+# Welcome Message with emojis
+WELCOME_MESSAGE = """
+🎉 **Welcome to String Session Generator Bot!** 🎉
 
-def validate_code(code):
-    return code.isdigit() and len(code) == 6
+🤖 **I Can Generate Pyrogram String Sessions**
+
+✨ **Features:**
+✅ Fast & Secure Session Generation
+✅ 2FA Password Support  
+✅ 100% Free Service
+✅ Easy to Use
+
+📱 **How to Use:**
+1. Click /generate to start
+2. Enter your phone number
+3. Enter verification code
+4. Get your string session!
+
+🔒 **Your privacy is safe with us!**
+"""
 
 # Keyboards
 def start_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 Generate Session", callback_data="generate")],
-        [InlineKeyboardButton("📢 Support", url=f"https://t.me/{SUPPORT_CHANNEL}")],
-        [InlineKeyboardButton("❓ Help", callback_data="help")]
+        [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")],
+        [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
     ])
 
 def support_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Support Channel", url=f"https://t.me/{SUPPORT_CHANNEL}")]
+        [InlineKeyboardButton("📢 Join Support", url=f"https://t.me/{SUPPORT_CHANNEL}")]
     ])
 
-# Start command
+def back_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Back to Start", callback_data="back_start")]
+    ])
+
+# Start command with welcome message
 @bot.on_message(filters.command("start"))
-async def start_cmd(client, message: Message):
+async def start_command(client, message: Message):
     try:
-        name = message.from_user.first_name
-        text = f"""👋 **Hello {name}!**
-
-🤖 **String Session Generator Bot**
-
-I can generate Pyrogram string sessions for your Telegram account.
-
-**Features:**
-✅ Fast & Secure
-✅ 2FA Support  
-✅ 100% Free
-
-Click **Generate Session** to begin!"""
+        user_id = message.from_user.id
+        first_name = message.from_user.first_name
+        
+        welcome_text = f"👋 **Hello {first_name}!**\n\n{WELCOME_MESSAGE}"
         
         await message.reply_text(
-            text,
+            welcome_text,
             reply_markup=start_keyboard(),
             disable_web_page_preview=True
         )
+        logger.info(f"Start command from user {user_id}")
+        
     except Exception as e:
-        logger.error(f"Start error: {e}")
+        logger.error(f"Error in start: {e}")
+        await message.reply_text("❌ An error occurred. Please try again.")
 
-# Help command  
+# Help command
 @bot.on_message(filters.command("help"))
-async def help_cmd(client, message: Message):
-    text = f"""📖 **Help Guide**
+async def help_command(client, message: Message):
+    help_text = f"""
+📖 **Help Guide - String Session Bot**
 
-**How to generate session:**
-1. Send /generate or click Generate button
-2. Enter your phone number (with country code)
-3. Enter verification code from Telegram
-4. If 2FA enabled, enter your password
+**What is String Session?**
+It's a way to authorize your Telegram account in Pyrogram apps without using bot tokens.
+
+**How to Generate:**
+1. Use /generate or click Generate button
+2. Send your phone number (with country code)
+3. Send the 6-digit verification code
+4. If you have 2FA, send your password
 5. Copy your generated session string
+
+**Example Phone Numbers:**
+• **+919876543210** (India)
+• **+1234567890** (US)
 
 **Safety Tips:**
 🔒 Never share your session string
-🗑️ Regenerate if compromised  
-💾 Store securely
+🔑 Store it securely
+🔄 Regenerate if compromised
 
-**Support:** @{SUPPORT_CHANNEL}"""
+**Need Help?** Join @{SUPPORT_CHANNEL}
+"""
     
-    await message.reply_text(text, reply_markup=support_keyboard())
+    await message.reply_text(
+        help_text,
+        reply_markup=support_keyboard(),
+        disable_web_page_preview=True
+    )
 
 # Generate command
 @bot.on_message(filters.command("generate"))
-async def generate_cmd(client, message: Message):
+async def generate_command(client, message: Message):
     user_id = message.from_user.id
     
     if user_id in user_sessions:
-        await message.reply_text("⚠️ You have an active session. Use /cancel first.")
+        await message.reply_text(
+            "⚠️ **You already have an active session!**\n\n"
+            "Please complete your current session first or use /cancel to start over.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Cancel Session", callback_data="cancel")]
+            ])
+        )
         return
     
+    # Start new session
     user_sessions[user_id] = {"step": "phone"}
+    
     await message.reply_text(
-        "📱 **Step 1: Phone Number**\n\n"
-        "Send your phone number in international format:\n"
-        "• **+919876543210** (India)\n" 
-        "• **+1234567890** (US)\n\n"
-        "Or /cancel to stop."
+        "📱 **Step 1 of 3: Phone Number**\n\n"
+        "Please send your **phone number** in international format:\n\n"
+        "**Examples:**\n"
+        "• `+919876543210` (India)\n"
+        "• `+1234567890` (US)\n"
+        "• `+441234567890` (UK)\n\n"
+        "🔸 **Must start with +**\n"
+        "🔸 **Include country code**\n\n"
+        "Type /cancel to stop.",
+        disable_web_page_preview=True
     )
 
 # Cancel command
 @bot.on_message(filters.command("cancel"))
-async def cancel_cmd(client, message: Message):
+async def cancel_command(client, message: Message):
     user_id = message.from_user.id
+    
     if user_id in user_sessions:
-        # Disconnect client if exists
+        # Clean up client if exists
         if "client" in user_sessions[user_id]:
             try:
                 await user_sessions[user_id]["client"].disconnect()
             except:
                 pass
         del user_sessions[user_id]
-    
-    await message.reply_text("✅ Cancelled. Use /generate to start again.")
+        await message.reply_text("✅ **Session cancelled!** Use /generate to start again.")
+    else:
+        await message.reply_text("ℹ️ **No active session found.** Use /generate to start.")
 
-# Callback queries
+# Support command
+@bot.on_message(filters.command("support"))
+async def support_command(client, message: Message):
+    await message.reply_text(
+        f"📢 **Support Channel**\n\n"
+        f"Join our channel for updates and support:\n"
+        f"**@{SUPPORT_CHANNEL}**\n\n"
+        f"Feel free to ask any questions! 💬",
+        reply_markup=support_keyboard()
+    )
+
+# Handle callback queries
 @bot.on_callback_query()
 async def handle_callbacks(client, callback_query):
     user_id = callback_query.from_user.id
     data = callback_query.data
     
-    if data == "generate":
-        if user_id in user_sessions:
-            await callback_query.answer("Session already active!", show_alert=True)
-            return
+    try:
+        if data == "generate":
+            if user_id in user_sessions:
+                await callback_query.answer("You already have an active session!", show_alert=True)
+                return
             
-        user_sessions[user_id] = {"step": "phone"}
-        await callback_query.message.edit_text(
-            "📱 **Step 1: Phone Number**\n\n"
-            "Send your phone number in international format:\n"
-            "• **+919876543210** (India)\n"
-            "• **+1234567890** (US)\n\n"
-            "Or /cancel to stop."
-        )
-    
-    elif data == "help":
-        text = f"""📖 **Help Guide**
-
-**Steps to generate session:**
-1. Click Generate Session  
-2. Enter phone number with country code
-3. Enter verification code
-4. Enter 2FA password (if enabled)
-5. Copy your session string
-
-**Support:** @{SUPPORT_CHANNEL}"""
+            user_sessions[user_id] = {"step": "phone"}
+            
+            await callback_query.message.edit_text(
+                "📱 **Step 1 of 3: Phone Number**\n\n"
+                "Please send your **phone number** in international format:\n\n"
+                "**Examples:**\n"
+                "• `+919876543210` (India)\n"
+                "• `+1234567890` (US)\n"
+                "• `+441234567890` (UK)\n\n"
+                "🔸 **Must start with +**\n"
+                "🔸 **Include country code**\n\n"
+                "Type /cancel to stop.",
+                disable_web_page_preview=True
+            )
         
-        await callback_query.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚀 Generate", callback_data="generate")],
-                [InlineKeyboardButton("📢 Support", url=f"https://t.me/{SUPPORT_CHANNEL}")]
-            ])
-        )
-    
-    await callback_query.answer()
+        elif data == "help":
+            help_text = f"""
+📖 **How to Use This Bot:**
 
-# Handle text messages
+**Step-by-Step Guide:**
+1. **Click Generate Session** 
+2. **Send Phone Number** (with country code)
+3. **Send Verification Code** (6-digit)
+4. **Send 2FA Password** (if enabled)
+5. **Copy Your Session String**
+
+**Safety Instructions:**
+🔐 Keep your session string private
+🗑️ Delete if shared accidentally  
+💾 Store in secure place
+
+**Support:** @{SUPPORT_CHANNEL}
+"""
+            await callback_query.message.edit_text(
+                help_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚀 Generate Session", callback_data="generate")],
+                    [InlineKeyboardButton("📢 Support", url=f"https://t.me/{SUPPORT_CHANNEL}")]
+                ]),
+                disable_web_page_preview=True
+            )
+        
+        elif data == "back_start":
+            welcome_text = f"👋 **Welcome back!**\n\n{WELCOME_MESSAGE}"
+            await callback_query.message.edit_text(
+                welcome_text,
+                reply_markup=start_keyboard(),
+                disable_web_page_preview=True
+            )
+        
+        elif data == "cancel":
+            if user_id in user_sessions:
+                if "client" in user_sessions[user_id]:
+                    try:
+                        await user_sessions[user_id]["client"].disconnect()
+                    except:
+                        pass
+                del user_sessions[user_id]
+            
+            await callback_query.message.edit_text(
+                "✅ **Session cancelled!**\n\n"
+                "You can start a new session anytime using the button below:",
+                reply_markup=start_keyboard()
+            )
+        
+        await callback_query.answer()
+        
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
+        await callback_query.answer("Error occurred!", show_alert=True)
+
+# Handle all text messages
 @bot.on_message(filters.text & filters.private)
-async def handle_text(client, message: Message):
+async def handle_text_messages(client, message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
     
+    # Ignore commands
     if text.startswith('/'):
         return
-        
+    
+    # If no active session, show start message
     if user_id not in user_sessions:
         await message.reply_text(
-            "🤖 Welcome! Use /generate to start session generation.",
-            reply_markup=start_keyboard()
+            f"👋 **Welcome!**\n\n{WELCOME_MESSAGE}",
+            reply_markup=start_keyboard(),
+            disable_web_page_preview=True
         )
         return
-        
-    session = user_sessions[user_id]
-    step = session["step"]
     
-    if step == "phone":
-        await handle_phone(client, message, text, session)
-    elif step == "code":
-        await handle_code(client, message, text, session)
-    elif step == "password":
-        await handle_password(client, message, text, session)
+    session = user_sessions[user_id]
+    current_step = session["step"]
+    
+    if current_step == "phone":
+        await handle_phone_input(client, message, text, session)
+    elif current_step == "code":
+        await handle_code_input(client, message, text, session)
+    elif current_step == "password":
+        await handle_password_input(client, message, text, session)
 
-async def handle_phone(client, message, phone, session):
+async def handle_phone_input(client, message, phone, session):
     user_id = message.from_user.id
     
-    if not validate_phone(phone):
+    # Validate phone number
+    if not re.match(r'^\+\d{10,15}$', phone):
         await message.reply_text(
-            "❌ Invalid format! Send phone with country code:\n"
-            "• **+919876543210**\n"
-            "• **+1234567890**"
+            "❌ **Invalid Phone Number Format!**\n\n"
+            "Please send in **international format**:\n\n"
+            "**Valid Examples:**\n"
+            "• `+919876543210`\n"
+            "• `+1234567890`\n"
+            "• `+441234567890`\n\n"
+            "🔸 **Must start with +**\n"
+            "🔸 **10-15 digits only**\n\n"
+            "Try again or /cancel to stop."
         )
         return
     
@@ -222,165 +326,102 @@ async def handle_phone(client, message, phone, session):
         )
         
         await user_client.connect()
+        
+        # Send verification code
         sent_code = await user_client.send_code(phone)
         
+        # Update session
         session["client"] = user_client
         session["phone"] = phone
         session["phone_code_hash"] = sent_code.phone_code_hash
         session["step"] = "code"
         
         await message.reply_text(
-            "📨 **Step 2: Verification Code**\n\n"
-            "I sent a 6-digit code to your Telegram.\n\n"
-            "Send me that code here:\n\n"
-            "Or /cancel to stop."
+            "📨 **Step 2 of 3: Verification Code**\n\n"
+            "✅ **Verification code sent!**\n\n"
+            "Please check your Telegram messages and send me the **6-digit code** you received.\n\n"
+            "🔹 **Code is 6 digits** (e.g., 123456)\n"
+            "🔹 **Enter code quickly** (expires in few minutes)\n"
+            "🔹 **Check both PM and Saved Messages**\n\n"
+            "Type /cancel to stop."
         )
+        logger.info(f"Code sent to {phone}")
         
     except PhoneNumberInvalid:
-        await message.reply_text("❌ Invalid phone number! Check and try again.")
+        await message.reply_text(
+            "❌ **Invalid Phone Number!**\n\n"
+            "The phone number you entered is invalid.\n"
+            "Please check and try again with correct country code."
+        )
         if user_id in user_sessions:
             del user_sessions[user_id]
+    
     except FloodWait as e:
-        await message.reply_text(f"⏳ Flood wait! Try again in {e.value} seconds.")
+        wait_time = e.value
+        await message.reply_text(
+            f"⏳ **Too Many Attempts!**\n\n"
+            f"Please wait **{wait_time} seconds** before trying again.\n"
+            f"This is a Telegram restriction for security."
+        )
         if user_id in user_sessions:
             del user_sessions[user_id]
+    
     except Exception as e:
-        await message.reply_text("❌ Error! Try again with /generate")
         logger.error(f"Phone error: {e}")
+        await message.reply_text(
+            "❌ **Error sending code!**\n\n"
+            "Please try again with /generate\n"
+            "If problem continues, contact support."
+        )
         if user_id in user_sessions:
             del user_sessions[user_id]
 
-async def handle_code(client, message, code, session):
+async def handle_code_input(client, message, code, session):
     user_id = message.from_user.id
     
-    if not validate_code(code):
-        await message.reply_text("❌ Invalid code! Send 6-digit code only.")
+    # Validate code
+    if not (code.isdigit() and len(code) == 6):
+        await message.reply_text(
+            "❌ **Invalid Code Format!**\n\n"
+            "Please send exactly **6 digits**:\n\n"
+            "**Example:** `123456`\n\n"
+            "Check your Telegram messages and send the correct code."
+        )
         return
     
     try:
         user_client = session["client"]
         phone = session["phone"]
         
+        # Sign in with code
         await user_client.sign_in(
             phone_number=phone,
-            phone_code_hash=session["phone_code_hash"], 
+            phone_code_hash=session["phone_code_hash"],
             phone_code=code
         )
         
-        # Success - generate session
+        # Generate string session
         string_session = await user_client.export_session_string()
         
+        # Success message
         success_msg = f"""
-✅ **Session Generated Successfully!**
+🎉 **STRING SESSION GENERATED SUCCESSFULLY!** 🎉
 
-**Your String Session:**
+**Your Session String:**
 ```{string_session}```
 
-**Important:**
-🔒 Keep this session secure
-🗑️ Regenerate if compromised  
-💾 Store safely
+**Important Instructions:**
+🔒 **KEEP IT SECURE** - Never share with anyone
+🗑️ **REGENERATE** if you suspect it's compromised  
+💾 **STORE SAFELY** - Save in secure place
 
-**Support:** @{SUPPORT_CHANNEL}
+**Usage in Pyrogram:**
+```python
+from pyrogram import Client
 
-Thank you! 🎉
-        """
-        
-        await message.reply_text(
-            success_msg,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Support", url=f"https://t.me/{SUPPORT_CHANNEL}")],
-                [InlineKeyboardButton("🔄 New Session", callback_data="generate")]
-            ]),
-            disable_web_page_preview=True
-        )
-        
-        # Cleanup
-        await user_client.disconnect()
-        del user_sessions[user_id]
-        
-    except PhoneCodeInvalid:
-        await message.reply_text("❌ Wrong code! Check and try again.")
-    except PhoneCodeExpired:
-        await message.reply_text("❌ Code expired! Start over with /generate")
-        await session["client"].disconnect()
-        del user_sessions[user_id]
-    except SessionPasswordNeeded:
-        session["step"] = "password"
-        await message.reply_text(
-            "🔒 **Step 3: 2FA Password**\n\n"
-            "Your account has 2FA enabled.\n\n"
-            "Send your 2FA password:\n\n"
-            "Or /cancel to stop."
-        )
-    except Exception as e:
-        await message.reply_text("❌ Error! Start over with /generate")
-        logger.error(f"Code error: {e}")
-        if "client" in session:
-            await session["client"].disconnect()
-        del user_sessions[user_id]
-
-async def handle_password(client, message, password, session):
-    user_id = message.from_user.id
-    
-    try:
-        user_client = session["client"]
-        await user_client.check_password(password)
-        
-        # Generate session
-        string_session = await user_client.export_session_string()
-        
-        success_msg = f"""
-✅ **Session Generated Successfully!**
-
-**Your String Session:**
-```{string_session}```
-
-**Important:**
-🔒 Keep this session secure
-🗑️ Regenerate if compromised
-💾 Store safely
-
-**Support:** @{SUPPORT_CHANNEL}
-
-Thank you! 🎉
-        """
-        
-        await message.reply_text(
-            success_msg,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Support", url=f"https://t.me/{SUPPORT_CHANNEL}")],
-                [InlineKeyboardButton("🔄 New Session", callback_data="generate")]
-            ]),
-            disable_web_page_preview=True
-        )
-        
-        # Cleanup
-        await user_client.disconnect()
-        del user_sessions[user_id]
-        
-    except PasswordHashInvalid:
-        await message.reply_text("❌ Wrong 2FA password! Try again.")
-    except Exception as e:
-        await message.reply_text("❌ Error! Start over with /generate")
-        logger.error(f"Password error: {e}")
-        if "client" in session:
-            await session["client"].disconnect()
-        del user_sessions[user_id]
-
-# Start bot
-async def main():
-    await bot.start()
-    print("✅ Bot Started Successfully!")
-    print("🤖 Bot is now running...")
-    
-    # Get bot info
-    me = await bot.get_me()
-    print(f"Bot: @{me.username}")
-    print(f"Name: {me.first_name}")
-    
-    # Keep running
-    await asyncio.Event().wait()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+app = Client(
+    "my_account",
+    session_string="{string_session}",
+    api_id=API_ID,
+    api_hash=API_HASH
+)
