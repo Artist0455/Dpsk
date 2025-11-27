@@ -253,19 +253,14 @@ async def handle_phone_input(client, message, phone, session):
         wait_time = e.value
         await message.reply_text(
             f"⏳ **Too Many Attempts!**\n\n"
-            f"Please wait **{wait_time} seconds** before trying again.\n"
-            f"This is a Telegram restriction for security."
+            f"Please wait **{wait_time} seconds** before trying again."
         )
         if user_id in user_sessions:
             del user_sessions[user_id]
     
     except Exception as e:
         logger.error(f"Phone error: {e}")
-        await message.reply_text(
-            "❌ **Error sending verification code!**\n\n"
-            "Please try again with /generate\n"
-            "If problem continues, contact support."
-        )
+        await message.reply_text("❌ **Error sending code!** Try /generate again.")
         if user_id in user_sessions:
             del user_sessions[user_id]
 
@@ -274,12 +269,7 @@ async def handle_code_input(client, message, code, session):
     
     # Validate code
     if not (code.isdigit() and len(code) == 6):
-        await message.reply_text(
-            "❌ **Invalid Code Format!**\n\n"
-            "Please send exactly **6 digits**:\n\n"
-            "**Example:** `123456`\n\n"
-            "Check your Telegram messages and send the correct code."
-        )
+        await message.reply_text("❌ **Invalid Code!** Send 6 digits only.")
         return
     
     try:
@@ -296,25 +286,123 @@ async def handle_code_input(client, message, code, session):
         # Generate string session
         string_session = await user_client.export_session_string()
         
-        # Success message
-        success_text = f"""
-✅ **PYROGRAM STRING SESSION GENERATED SUCCESSFULLY!**
+        # FIXED: Simple success message without complex f-string
+        success_text = "✅ **PYROGRAM SESSION GENERATED!**\n\n"
+        success_text += f"**Your Session:**\n```{string_session}```\n\n"
+        success_text += "**Important:**\n"
+        success_text += "🔒 **Keep it secure** - Never share\n"
+        success_text += "🗑️ **Regenerate** if compromised\n"
+        success_text += "💾 **Store safely**\n\n"
+        success_text += "**Usage:**\n"
+        success_text += "```python\nfrom pyrogram import Client\n\n"
+        success_text += f'app = Client(\n    "my_account",\n    session_string="{string_session}",\n    api_id=API_ID,\n    api_hash=API_HASH\n)```\n\n'
+        success_text += "**Support:** @shribots\n\n"
+        success_text += "🎉 **Thank you!**"
+        
+        await message.reply_text(
+            success_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Support Channel", url="https://t.me/shribots")],
+                [InlineKeyboardButton("🔄 Generate New", callback_data="generate")]
+            ])
+        )
+        
+        logger.info(f"Session generated for user {user_id}")
+        
+        # Cleanup
+        await user_client.disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+    
+    except PhoneCodeInvalid:
+        await message.reply_text("❌ **Wrong code!** Check and try again.")
+    
+    except PhoneCodeExpired:
+        await message.reply_text("❌ **Code expired!** Use /generate for new code.")
+        await session["client"].disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+    
+    except SessionPasswordNeeded:
+        session["step"] = "password"
+        await message.reply_text("🔐 **2FA Enabled**\nSend your password:\n\n/cancel to stop.")
+    
+    except FloodWait as e:
+        await message.reply_text(f"⏳ **Wait {e.value} seconds** before trying.")
+        await session["client"].disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+    
+    except Exception as e:
+        logger.error(f"Code error: {e}")
+        await message.reply_text("❌ **Error!** Use /generate again.")
+        if "client" in session:
+            await session["client"].disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
 
-**Your Session String:**
-```{string_session}```
+async def handle_password_input(client, message, password, session):
+    user_id = message.from_user.id
+    
+    try:
+        user_client = session["client"]
+        
+        # Verify 2FA password
+        await user_client.check_password(password)
+        
+        # Generate string session
+        string_session = await user_client.export_session_string()
+        
+        # FIXED: Simple success message
+        success_text = "✅ **PYROGRAM SESSION GENERATED!**\n\n"
+        success_text += f"**Your Session:**\n```{string_session}```\n\n"
+        success_text += "🔐 **2FA Verified!**\n"
+        success_text += "🔒 **Keep it secure**\n\n"
+        success_text += "**Support:** @shribots\n\n"
+        success_text += "🎉 **Thank you!**"
+        
+        await message.reply_text(
+            success_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Support Channel", url="https://t.me/shribots")],
+                [InlineKeyboardButton("🔄 Generate New", callback_data="generate")]
+            ])
+        )
+        
+        logger.info(f"2FA session generated for user {user_id}")
+        
+        # Cleanup
+        await user_client.disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+    
+    except PasswordHashInvalid:
+        await message.reply_text("❌ **Wrong password!** Try again.")
+    
+    except Exception as e:
+        logger.error(f"Password error: {e}")
+        await message.reply_text("❌ **Error!** Use /generate again.")
+        if "client" in session:
+            await session["client"].disconnect()
+        if user_id in user_sessions:
+            del user_sessions[user_id]
 
-**Important Instructions:**
-🔒 **KEEP IT SECURE** - Never share with anyone
-🗑️ **REGENERATE** if you suspect it's compromised  
-💾 **STORE SAFELY** - Save in secure place
+async def main():
+    await app.start()
+    print("✅ PYROGRAM BOT STARTED SUCCESSFULLY!")
+    
+    # Get bot info
+    me = await app.get_me()
+    print(f"🤖 Bot Username: @{me.username}")
+    print(f"📛 Bot Name: {me.first_name}")
+    print(f"🆔 Bot ID: {me.id}")
+    print("🌐 Status: ✅ ACTIVE & RUNNING")
+    print("💡 Ready to receive messages...")
+    print("=" * 50)
+    
+    # Keep running
+    await idle()
 
-**Usage in Pyrogram:**
-```python
-from pyrogram import Client
-
-app = Client(
-    "my_account",
-    session_string="{string_session}",
-    api_id=API_ID,
-    api_hash=API_HASH
-)
+if __name__ == "__main__":
+    print("🚀 Starting Pyrogram String Session Bot...")
+    asyncio.run(main())
