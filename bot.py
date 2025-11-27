@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Bot configuration - YAHI APNA BOT TOKEN DALNA
 API_ID = 25136703
 API_HASH = "accfaf5ecd981c67e481328515c39f89"
-BOT_TOKEN = "8350139839:AAEgtaB1FpNTCqnCVIPHu0Q_KdJaok_slYU"
+BOT_TOKEN = "8350139839:AAEpoi_doxbgnu9CJhK1yI073vbgTcoDKBk"
 
 # Initialize bot
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
