@@ -1,8 +1,15 @@
 import os
 import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters
 from pyrogram import Client
+
+# Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 # Bot token
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8244179451:AAF8LT22EcppuWET3msokmpnbmGWiaQxMOs")
@@ -16,7 +23,12 @@ API_CREDENTIALS = [
 
 # Welcome message
 async def start(update: Update, context: CallbackContext) -> None:
-    bot_username = (await context.bot.get_me()).username
+    try:
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username
+    except:
+        bot_username = "your_bot"
+    
     keyboard = [
         [InlineKeyboardButton("📱 Generate String Session", callback_data="generate_session")],
         [
@@ -131,15 +143,19 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                             "✨ **Powered by:** @idxhelp",
                             parse_mode='Markdown'
                         )
-                        context.user_data.clear()
                     else:
                         await update.message.reply_text(
-                            f"❌ **Error:** `{str(e)}`\n\n"
+                            f"❌ **Connection Error:** `{str(e)}`\n\n"
                             "Please try again with /start\n\n"
                             "✨ **Powered by:** @idxhelp",
                             parse_mode='Markdown'
                         )
-                        context.user_data.clear()
+                    # Cleanup
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+                    context.user_data.clear()
                         
             else:
                 await update.message.reply_text(
@@ -152,6 +168,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
         elif step == 'code':
             if text.isdigit() and len(text) == 5:
+                if 'client' not in context.user_data:
+                    await update.message.reply_text(
+                        "❌ **Session expired!**\n\n"
+                        "Please start again with /start\n\n"
+                        "✨ **Powered by:** @idxhelp",
+                        parse_mode='Markdown'
+                    )
+                    context.user_data.clear()
+                    return
+                    
                 client = context.user_data['client']
                 phone = context.user_data['phone']
                 phone_code_hash = context.user_data['phone_code_hash']
@@ -183,7 +209,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                     
                     # Send session to saved messages
                     try:
-                        bot_username = (await context.bot.get_me()).username
+                        bot_info = await context.bot.get_me()
+                        bot_username = bot_info.username
+                    except:
+                        bot_username = "your_bot"
+                        
+                    try:
                         await client.send_message("me", 
                             f"🔐 **Your String Session**\n\n"
                             f"**Session:** `{string_session}`\n\n"
@@ -225,9 +256,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                             parse_mode='Markdown'
                         )
                     
+                    # Cleanup
                     await client.disconnect()
-                    await client.stop()
-                    
                     context.user_data.clear()
                     
                 except Exception as e:
@@ -248,7 +278,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                         )
                     else:
                         await update.message.reply_text(
-                            f"❌ **Error:** `{error_msg}`\n\n"
+                            f"❌ **Verification Error:** `{error_msg}`\n\n"
                             "Please try again with /start\n\n"
                             "✨ **Powered by:** @idxhelp",
                             parse_mode='Markdown'
@@ -257,7 +287,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                     # Cleanup
                     try:
                         await client.disconnect()
-                        await client.stop()
                     except:
                         pass
                     context.user_data.clear()
@@ -282,7 +311,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             try:
                 client = context.user_data['client']
                 await client.disconnect()
-                await client.stop()
             except:
                 pass
         context.user_data.clear()
@@ -335,7 +363,7 @@ async def session_command(update: Update, context: CallbackContext) -> None:
 
 # Error handler
 async def error_handler(update: Update, context: CallbackContext) -> None:
-    print(f"Error: {context.error}")
+    logging.error(f"Error: {context.error}")
 
 # Main function
 def main():
@@ -353,10 +381,10 @@ def main():
     application.add_error_handler(error_handler)
     
     # Start bot
-    print("🤖 Number-based Session Generator Bot Started!")
-    print("✨ Powered by: @idxhelp")
-    print("📱 Features: Real session generation, Auto-save to Saved Messages")
-    print("🚀 Deployed on: Render")
+    logging.info("🤖 Number-based Session Generator Bot Started!")
+    logging.info("✨ Powered by: @idxhelp")
+    logging.info("📱 Features: Real session generation, Auto-save to Saved Messages")
+    logging.info("🚀 Deployed on: Render")
     
     # Run bot
     application.run_polling(drop_pending_updates=True)
