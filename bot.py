@@ -1,32 +1,25 @@
-from flask import Flask, jsonify
 import os
 import logging
 import asyncio
-import threading
-import time
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Flask app
-app = Flask(__name__)
-
 # Bot configuration
-API_ID = int(os.environ.get("API_ID", "25136703"))
-API_HASH = os.environ.get("API_HASH", "accfaf5ecd981c67e481328515c39f89")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8350139839:AAEgtaB1FpNTCqnCVIPHu0Q_KdJaok_slYU")
+API_ID = 25136703
+API_HASH = "accfaf5ecd981c67e481328515c39f89"
+BOT_TOKEN = "8350139839:AAEgtaB1FpNTCqnCVIPHu0Q_KdJaok_slYU"
 
 # Initialize bot
-bot = Client("session_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
+app = Client("session_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
 
 # Store user sessions
 user_sessions = {}
 
-# Bot Handlers
-@bot.on_message(filters.command("start"))
+@app.on_message(filters.command("start"))
 async def start_command(client, message: Message):
     try:
         user_id = message.from_user.id
@@ -59,7 +52,7 @@ Click the button below to get started!"""
         logger.error(f"Start error: {e}")
         await message.reply_text("❌ An error occurred. Please try /start again.")
 
-@bot.on_message(filters.command("help"))
+@app.on_message(filters.command("help"))
 async def help_command(client, message: Message):
     help_text = """
 📖 **How to Use This Bot:**
@@ -85,7 +78,7 @@ async def help_command(client, message: Message):
     
     await message.reply_text(help_text, reply_markup=keyboard)
 
-@bot.on_message(filters.command("generate"))
+@app.on_message(filters.command("generate"))
 async def generate_command(client, message: Message):
     user_id = message.from_user.id
     
@@ -102,7 +95,7 @@ async def generate_command(client, message: Message):
         "Type /cancel to stop."
     )
 
-@bot.on_message(filters.command("cancel"))
+@app.on_message(filters.command("cancel"))
 async def cancel_command(client, message: Message):
     user_id = message.from_user.id
     
@@ -116,7 +109,7 @@ async def cancel_command(client, message: Message):
     
     await message.reply_text("✅ Session cancelled! Use /generate to start again.")
 
-@bot.on_callback_query()
+@app.on_callback_query()
 async def handle_callbacks(client, callback_query):
     user_id = callback_query.from_user.id
     data = callback_query.data
@@ -160,7 +153,7 @@ async def handle_callbacks(client, callback_query):
         logger.error(f"Callback error: {e}")
         await callback_query.answer("Error occurred!", show_alert=True)
 
-@bot.on_message(filters.text & filters.private)
+@app.on_message(filters.text & filters.private)
 async def handle_text_messages(client, message: Message):
     user_id = message.from_user.id
     text = message.text.strip()
@@ -203,64 +196,19 @@ async def handle_phone_input(client, message, phone, session):
         if user_id in user_sessions:
             del user_sessions[user_id]
 
-# Flask Routes
-@app.route('/')
-def home():
-    return jsonify({
-        "status": "running", 
-        "service": "Telegram Session Bot",
-        "message": "Bot is active and ready!",
-        "bot_username": "@StringSessionBot"
-    })
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy", "bot": "active"})
-
-@app.route('/ping')
-def ping():
-    return jsonify({"message": "pong", "status": "alive"})
-
-# Bot runner function
-def run_bot():
-    """Run bot in a separate thread"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+async def main():
+    await app.start()
+    print("=" * 60)
+    print("✅ BOT STARTED SUCCESSFULLY!")
+    me = await app.get_me()
+    print(f"🤖 Bot: @{me.username}")
+    print(f"📛 Name: {me.first_name}")
+    print("🌐 Bot is now responding to messages...")
+    print("💡 Send /start to your bot to test it!")
+    print("=" * 60)
     
-    try:
-        loop.run_until_complete(start_bot())
-    except Exception as e:
-        logger.error(f"Bot error: {e}")
+    await idle()
 
-async def start_bot():
-    """Start the Telegram bot"""
-    try:
-        await bot.start()
-        me = await bot.get_me()
-        print("=" * 50)
-        print("✅ TELEGRAM BOT STARTED SUCCESSFULLY!")
-        print(f"🤖 Bot: @{me.username}")
-        print(f"📛 Name: {me.first_name}")
-        print("🌐 Bot is now responding to messages...")
-        print("💡 Send /start to test the bot")
-        print("=" * 50)
-        
-        # Keep the bot running
-        await bot.idle()
-        
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-
-if __name__ == '__main__':
-    # Start bot in separate thread
+if __name__ == "__main__":
     print("🚀 Starting Telegram Bot...")
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    # Give bot time to start
-    time.sleep(5)
-    
-    # Start Flask server
-    port = int(os.environ.get('PORT', 5000))
-    print(f"🌐 Starting Flask server on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    asyncio.run(main())
