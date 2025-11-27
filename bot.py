@@ -1,167 +1,366 @@
 import os
 import asyncio
-import logging
-from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters
+from pyrogram import Client
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Bot token yahan dalen - Render pe environment variable use karenge
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8244179451:AAF8LT22EcppuWET3msokmpnbmGWiaQxMOs")
 
-# Bot configuration - YAHI APNA BOT TOKEN DALNA
-API_ID = 25136703
-API_HASH = "accfaf5ecd981c67e481328515c39f89"
-BOT_TOKEN = "8350139839:AAEpoi_doxbgnu9CJhK1yI073vbgTcoDKBk"
+# Pre-defined API credentials
+API_CREDENTIALS = [
+    {"api_id": 2040, "api_hash": "b18441a1ff607e10a989891a5462e627"},
+    {"api_id": 6, "api_hash": "eb06d4abfb49dc3eeb1aeb98ae0f581e"},
+    {"api_id": 4, "api_hash": "014b35b6184100b085b0d0572f9b5103"},
+]
 
-# Initialize bot
-app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Store user sessions
+# User sessions store (in-memory, Render pe temporary)
 user_sessions = {}
 
-@app.on_message(filters.command("start"))
-async def start_command(client, message: Message):
-    try:
-        user_id = message.from_user.id
-        first_name = message.from_user.first_name
-        
-        welcome_text = f"""
-**👋 Hello {first_name}!**
-
-🤖 **STRING SESSION GENERATOR BOT**
-
-✅ **Bot Status: ONLINE & WORKING**
-✅ **Server: ACTIVE** 
-✅ **Response: INSTANT**
-
-**Features:**
-• Pyrogram String Sessions
-• Fast & Secure
-• 2FA Support
-• 100% Free
-
-**Click below to test the bot:**
-"""
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 TEST BOT", callback_data="test")],
-            [InlineKeyboardButton("📢 SUPPORT", url="https://t.me/shribots")],
-            [InlineKeyboardButton("🔄 REFRESH", callback_data="refresh")]
-        ])
-        
-        await message.reply_text(welcome_text, reply_markup=keyboard)
-        logger.info(f"✅ START command from user {user_id}")
-        
-    except Exception as e:
-        logger.error(f"Start error: {e}")
-        await message.reply_text("❌ Error! Please try /start again.")
-
-@app.on_message(filters.command("help"))
-async def help_command(client, message: Message):
-    help_text = """
-**🆘 HELP GUIDE**
-
-**How to Use:**
-1. Send /start to begin
-2. Click TEST BOT to check if bot is working
-3. Bot will respond immediately
-
-**Commands:**
-/start - Start the bot
-/help - Show this help
-/test - Test bot response
-/ping - Check bot status
-
-**Support:** @shribots
-"""
-    await message.reply_text(help_text)
-
-@app.on_message(filters.command("test"))
-async def test_command(client, message: Message):
-    await message.reply_text("✅ **BOT IS WORKING!**\n\nI'm alive and responding perfectly!")
-
-@app.on_message(filters.command("ping"))
-async def ping_command(client, message: Message):
-    await message.reply_text("🏓 **PONG!**\n\n✅ Bot is online and responsive!")
-
-@app.on_callback_query()
-async def handle_callbacks(client, callback_query):
-    user_id = callback_query.from_user.id
-    data = callback_query.data
+# Welcome message
+async def start(update: Update, context: CallbackContext) -> None:
+    keyboard = [
+        [InlineKeyboardButton("📱 Generate String Session", callback_data="generate_session")],
+        [
+            InlineKeyboardButton("📢 Official Channel", url="https://t.me/idxhelp"),
+            InlineKeyboardButton("🆘 Support", url="https://t.me/idxhelp")
+        ],
+        [InlineKeyboardButton("👥 Add to Group", url=f"https://t.me/{(await context.bot.get_me()).username}?startgroup=true")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    try:
-        if data == "test":
-            await callback_query.answer("✅ BOT IS WORKING PERFECTLY!", show_alert=True)
-            logger.info(f"✅ TEST button clicked by {user_id}")
-            
-        elif data == "refresh":
-            name = callback_query.from_user.first_name
-            refresh_text = f"""
-**🔄 REFRESHED SUCCESSFULLY!**
+    welcome_text = """
+🔐 **String Session Generator Bot**
 
-👋 Hello {name}!
+📱 **Yeh bot aapke phone number se string session generate karega:**
 
-✅ **Bot Status:** ONLINE
-✅ **Response Time:** INSTANT  
-✅ **Server:** ACTIVE
+⚡ **Features:**
+• Real string session generation
+• Automatically saved messages mein send
+• Pyrogram format
+• Music bots ke liye perfect
 
-**All systems are working perfectly!**
+🚀 **How to Use:**
+1. 'Generate String Session' button click karein
+2. Apna phone number bhejein (with country code)
+3. Verification code bhejein
+4. Session aapke saved messages mein automatically save ho jayega
+
+━━━━━━━━━━━━━━━━━━━━
+✨ **Powered by:** @idxhelp
+━━━━━━━━━━━━━━━━━━━━
+
+👇 **Start karne ke liye button click karein:**
 """
-            await callback_query.message.edit_text(refresh_text)
-            logger.info(f"✅ REFRESH button clicked by {user_id}")
-        
-        await callback_query.answer()
-        
-    except Exception as e:
-        logger.error(f"Callback error: {e}")
-        await callback_query.answer("❌ Error occurred!", show_alert=True)
-
-@app.on_message(filters.text & filters.private)
-async def echo_message(client, message: Message):
-    user_id = message.from_user.id
-    text = message.text
     
-    # Ignore commands
-    if text.startswith('/'):
+    await update.message.reply_text(
+        welcome_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# Generate session button handler
+async def button_handler(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "generate_session":
+        await query.edit_message_text(
+            "📱 **String Session Generation**\n\n"
+            "Please send your Phone Number with country code:\n"
+            "**Example:** `+919876543210`\n\n"
+            "✨ **Powered by:** @idxhelp",
+            parse_mode='Markdown'
+        )
+        context.user_data['step'] = 'phone'
+        context.user_data['user_id'] = query.from_user.id
+
+# Message handler
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    if 'step' not in context.user_data:
         return
     
-    response_text = f"""
-**📨 MESSAGE RECEIVED**
+    user_id = update.effective_user.id
+    text = update.message.text
+    step = context.user_data['step']
+    
+    try:
+        if step == 'phone':
+            if text.startswith('+') and len(text) >= 10:
+                context.user_data['phone'] = text
+                context.user_data['step'] = 'code'
+                
+                # API credentials select karein
+                creds = API_CREDENTIALS[0]
+                
+                await update.message.reply_text(
+                    f"✅ **Phone Number Received:** `{text}`\n\n"
+                    f"🔐 **Connecting to Telegram...**\n\n"
+                    f"✨ **Powered by:** @idxhelp",
+                    parse_mode='Markdown'
+                )
+                
+                # Pyrogram client start karein - Render compatible session name
+                session_name = f"session_{user_id}"
+                client = Client(
+                    session_name,
+                    api_id=creds['api_id'],
+                    api_hash=creds['api_hash'],
+                    phone_number=text,
+                    in_memory=True  # Render pe file system issues se bachne ke liye
+                )
+                
+                await client.connect()
+                
+                # Send code
+                try:
+                    sent_code = await client.send_code(text)
+                    context.user_data['phone_code_hash'] = sent_code.phone_code_hash
+                    context.user_data['client'] = client
+                    
+                    await update.message.reply_text(
+                        "📨 **Verification code sent to your Telegram account!**\n\n"
+                        "Please send the 5-digit code you received:\n\n"
+                        "✨ **Powered by:** @idxhelp",
+                        parse_mode='Markdown'
+                    )
+                    
+                except Exception as e:
+                    if "FLOOD_WAIT" in str(e):
+                        await update.message.reply_text(
+                            "⏳ **Telegram flood wait error!**\n\n"
+                            "Please try again after some time.\n\n"
+                            "✨ **Powered by:** @idxhelp",
+                            parse_mode='Markdown'
+                        )
+                        context.user_data.clear()
+                    else:
+                        raise e
+                        
+            else:
+                await update.message.reply_text(
+                    "❌ **Invalid phone number!**\n\n"
+                    "Please send in correct format:\n"
+                    "**Example:** `+919876543210`\n\n"
+                    "✨ **Powered by:** @idxhelp",
+                    parse_mode='Markdown'
+                )
+        
+        elif step == 'code':
+            if text.isdigit() and len(text) == 5:
+                client = context.user_data['client']
+                phone = context.user_data['phone']
+                phone_code_hash = context.user_data['phone_code_hash']
+                
+                await update.message.reply_text(
+                    "🔐 **Verifying code...**\n\n"
+                    "Please wait...\n\n"
+                    "✨ **Powered by:** @idxhelp",
+                    parse_mode='Markdown'
+                )
+                
+                try:
+                    # Sign in with code
+                    await client.sign_in(
+                        phone_number=phone,
+                        phone_code_hash=phone_code_hash,
+                        phone_code=text
+                    )
+                    
+                    # Get string session
+                    string_session = await client.export_session_string()
+                    
+                    await update.message.reply_text(
+                        "✅ **Successfully signed in!**\n\n"
+                        "📤 **Sending session to your Saved Messages...**\n\n"
+                        "✨ **Powered by:** @idxhelp",
+                        parse_mode='Markdown'
+                    )
+                    
+                    # Send session to saved messages
+                    try:
+                        await client.send_message("me", 
+                            f"🔐 **Your String Session**\n\n"
+                            f"**Session:** `{string_session}`\n\n"
+                            f"📝 **Generated by:** @{context.bot.username}\n"
+                            f"📱 **Phone:** `{phone}`\n"
+                            f"🕒 **Time:** {asyncio.get_event_loop().time()}\n\n"
+                            f"⚠️ **Important:**\n"
+                            f"• Is session ko kisi se share na karein\n"
+                            f"• Secure jagah save karein\n"
+                            f"• Music bots mein use karein\n\n"
+                            f"✨ **Powered by:** @idxhelp"
+                        )
+                        
+                        # Success message with buttons
+                        success_keyboard = [
+                            [InlineKeyboardButton("📢 Official Channel", url="https://t.me/idxhelp")],
+                            [InlineKeyboardButton("🔄 New Session", callback_data="generate_session")],
+                            [InlineKeyboardButton("👥 Add to Group", url=f"https://t.me/{(await context.bot.get_me()).username}?startgroup=true")]
+                        ]
+                        success_markup = InlineKeyboardMarkup(success_keyboard)
+                        
+                        await update.message.reply_text(
+                            "🎉 **String Session Successfully Generated!**\n\n"
+                            f"✅ **Session sent to your Saved Messages!**\n\n"
+                            f"📱 **Phone:** `{phone}`\n"
+                            f"🔐 **Check your Telegram Saved Messages**\n\n"
+                            f"⚠️ **Session securely saved in your account**\n\n"
+                            f"✨ **Powered by:** @idxhelp",
+                            reply_markup=success_markup,
+                            parse_mode='Markdown'
+                        )
+                        
+                    except Exception as e:
+                        await update.message.reply_text(
+                            f"✅ **Session Generated but couldn't send to Saved Messages**\n\n"
+                            f"🔐 **Your String Session:**\n"
+                            f"`{string_session}`\n\n"
+                            f"⚠️ **Please save this session securely**\n\n"
+                            f"✨ **Powered by:** @idxhelp",
+                            parse_mode='Markdown'
+                        )
+                    
+                    await client.disconnect()
+                    await client.stop()
+                    
+                    context.user_data.clear()
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    if "phone_code_expired" in error_msg:
+                        await update.message.reply_text(
+                            "❌ **Verification code expired!**\n\n"
+                            "Please start again with /start\n\n"
+                            "✨ **Powered by:** @idxhelp",
+                            parse_mode='Markdown'
+                        )
+                    elif "phone_code_invalid" in error_msg:
+                        await update.message.reply_text(
+                            "❌ **Invalid verification code!**\n\n"
+                            "Please check the code and try again.\n\n"
+                            "✨ **Powered by:** @idxhelp",
+                            parse_mode='Markdown'
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"❌ **Error:** `{error_msg}`\n\n"
+                            "Please try again with /start\n\n"
+                            "✨ **Powered by:** @idxhelp",
+                            parse_mode='Markdown'
+                        )
+                    
+                    # Cleanup
+                    try:
+                        await client.disconnect()
+                        await client.stop()
+                    except:
+                        pass
+                    context.user_data.clear()
+                    
+            else:
+                await update.message.reply_text(
+                    "❌ **Invalid code!**\n\n"
+                    "Please send the 5-digit verification code:\n\n"
+                    "✨ **Powered by:** @idxhelp",
+                    parse_mode='Markdown'
+                )
+    
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ **Unexpected Error:** `{str(e)}`\n\n"
+            "Please try again with /start\n\n"
+            "✨ **Powered by:** @idxhelp",
+            parse_mode='Markdown'
+        )
+        # Cleanup on error
+        if 'client' in context.user_data:
+            try:
+                client = context.user_data['client']
+                await client.disconnect()
+                await client.stop()
+            except:
+                pass
+        context.user_data.clear()
 
-**Your Message:** {text}
+# Help command
+async def help_command(update: Update, context: CallbackContext) -> None:
+    help_text = """
+🆘 **Help Guide - String Session Generator**
 
-✅ **Bot Response:** I received your message!
-🤖 **Status:** Bot is working perfectly!
+📱 **How to Generate Session:**
+1. /start command bhejein
+2. 'Generate String Session' button click karein
+3. Apna phone number bhejein (with country code)
+4. Verification code bhejein
+5. Session automatically aapke Saved Messages mein save ho jayega
 
-**Try these commands:**
-/start - Main menu
-/test - Test bot
-/ping - Check status
+🔐 **What is String Session?**
+• Yeh aapke Telegram account ka authentication token hai
+• Music bots banane ke liye use hota hai
+• User bots ke liye use hota hai
 
-**Support:** @shribots
+⚠️ **Security Tips:**
+• Session kisi se share na karein
+• Secure jagah save karein
+• Sirf trusted bots mein use karein
+
+📞 **Phone Number Format:**
+• Country code ke saath: `+919876543210`
+• Without spaces
+
+🔧 **Support:**
+• Official Channel: @idxhelp
+• Support Group: @idxhelp
+
+✨ **Powered by:** @idxhelp
 """
-    await message.reply_text(response_text)
-    logger.info(f"✅ Message received from {user_id}: {text}")
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
-async def main():
-    await app.start()
+# Direct session command
+async def session_command(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text(
+        "🔐 **Direct Session Generation**\n\n"
+        "Please send your Phone Number with country code:\n"
+        "**Example:** `+919876543210`\n\n"
+        "✨ **Powered by:** @idxhelp",
+        parse_mode='Markdown'
+    )
+    context.user_data['step'] = 'phone'
+    context.user_data['user_id'] = update.effective_user.id
+
+# Error handler
+async def error_handler(update: Update, context: CallbackContext) -> None:
+    print(f"Error: {context.error}")
+    # Log errors but don't crash
+
+# Health check for Render
+async def health_check():
+    return {"status": "healthy", "service": "Telegram Session Bot"}
+
+# Main function - Render compatible
+def main():
+    # Create application
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    # Get bot info
-    me = await app.get_me()
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("session", session_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("\n" + "="*60)
-    print("🤖 BOT STARTED SUCCESSFULLY!")
-    print("="*60)
-    print(f"🔗 Username: @{me.username}")
-    print(f"📛 Name: {me.first_name}")
-    print(f"🆔 ID: {me.id}")
-    print("✅ STATUS: ONLINE & RESPONDING")
-    print("🌐 SERVER: ACTIVE")
-    print("💡 Send /start to your bot to test")
-    print("="*60)
+    # Error handler
+    application.add_error_handler(error_handler)
     
-    # Keep bot running
-    await asyncio.Event().wait()
+    # Start bot
+    print("🤖 Number-based Session Generator Bot Started!")
+    print("✨ Powered by: @idxhelp")
+    print("📱 Features: Real session generation, Auto-save to Saved Messages")
+    print("🚀 Deployed on: Render")
+    
+    # Run bot
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    print("🚀 Starting Real Working Bot...")
-    asyncio.run(main())
+    main()
