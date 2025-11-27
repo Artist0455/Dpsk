@@ -2,8 +2,9 @@ from flask import Flask, jsonify
 import os
 import logging
 import asyncio
-from threading import Thread
-from pyrogram import Client, filters, idle
+import threading
+import time
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 # Configure logging
@@ -209,7 +210,7 @@ def home():
         "status": "running", 
         "service": "Telegram Session Bot",
         "message": "Bot is active and ready!",
-        "endpoints": ["/", "/health", "/ping"]
+        "bot_username": "@StringSessionBot"
     })
 
 @app.route('/health')
@@ -221,27 +222,45 @@ def ping():
     return jsonify({"message": "pong", "status": "alive"})
 
 # Bot runner function
-async def run_bot():
-    await bot.start()
-    print("✅ TELEGRAM BOT STARTED SUCCESSFULLY!")
-    me = await bot.get_me()
-    print(f"🤖 Bot: @{me.username}")
-    print(f"📛 Name: {me.first_name}") 
-    print("🌐 Bot is now responding to messages...")
-    await idle()
-
-# Start bot in background thread
-def start_bot():
+def run_bot():
+    """Run bot in a separate thread"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_bot())
+    
+    try:
+        loop.run_until_complete(start_bot())
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+
+async def start_bot():
+    """Start the Telegram bot"""
+    try:
+        await bot.start()
+        me = await bot.get_me()
+        print("=" * 50)
+        print("✅ TELEGRAM BOT STARTED SUCCESSFULLY!")
+        print(f"🤖 Bot: @{me.username}")
+        print(f"📛 Name: {me.first_name}")
+        print("🌐 Bot is now responding to messages...")
+        print("💡 Send /start to test the bot")
+        print("=" * 50)
+        
+        # Keep the bot running
+        await bot.idle()
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
 
 if __name__ == '__main__':
     # Start bot in separate thread
-    bot_thread = Thread(target=start_bot, daemon=True)
+    print("🚀 Starting Telegram Bot...")
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+    
+    # Give bot time to start
+    time.sleep(5)
     
     # Start Flask server
     port = int(os.environ.get('PORT', 5000))
     print(f"🌐 Starting Flask server on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
