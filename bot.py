@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler, filters
 from pyrogram import Client
 
-# Bot token yahan dalen - Render pe environment variable use karenge
+# Bot token - Render pe environment variable use karenge
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8244179451:AAF8LT22EcppuWET3msokmpnbmGWiaQxMOs")
 
 # Pre-defined API credentials
@@ -13,9 +13,6 @@ API_CREDENTIALS = [
     {"api_id": 6, "api_hash": "eb06d4abfb49dc3eeb1aeb98ae0f581e"},
     {"api_id": 4, "api_hash": "014b35b6184100b085b0d0572f9b5103"},
 ]
-
-# User sessions store (in-memory, Render pe temporary)
-user_sessions = {}
 
 # Welcome message
 async def start(update: Update, context: CallbackContext) -> None:
@@ -332,11 +329,6 @@ async def session_command(update: Update, context: CallbackContext) -> None:
 # Error handler
 async def error_handler(update: Update, context: CallbackContext) -> None:
     print(f"Error: {context.error}")
-    # Log errors but don't crash
-
-# Health check for Render
-async def health_check():
-    return {"status": "healthy", "service": "Telegram Session Bot"}
 
 # Main function - Render compatible
 def main():
@@ -358,6 +350,7 @@ def main():
     print("✨ Powered by: @idxhelp")
     print("📱 Features: Real session generation, Auto-save to Saved Messages")
     print("🚀 Deployed on: Render")
+    print(f"🤖 Bot Username: @{(application.bot_data.get('bot', {}).get('username', 'Unknown'))}")
     
     # Run bot
     application.run_polling(drop_pending_updates=True)
